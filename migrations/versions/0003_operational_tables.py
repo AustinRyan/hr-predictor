@@ -127,11 +127,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_park_factors_season_metric", table_name="park_factors")
-    op.drop_table("park_factors")
-    op.drop_index("ix_weather_park_forecast_for", table_name="weather_forecasts")
-    op.drop_table("weather_forecasts")
-    op.drop_index("ix_projected_lineups_game_pk", table_name="projected_lineups")
-    op.drop_table("projected_lineups")
-    op.drop_index("ix_daily_schedule_game_date", table_name="daily_schedule")
-    op.drop_table("daily_schedule")
+    op.execute("DROP INDEX IF EXISTS ix_park_factors_season_metric")
+    op.execute("DROP TABLE IF EXISTS park_factors")
+    op.execute("DROP INDEX IF EXISTS ix_weather_park_forecast_for")
+    op.execute("DROP TABLE IF EXISTS weather_forecasts")
+    op.execute("DROP INDEX IF EXISTS ix_projected_lineups_game_pk")
+    op.execute("DROP TABLE IF EXISTS projected_lineups")
+    op.execute("DROP INDEX IF EXISTS ix_daily_schedule_game_date")
+    op.execute("DROP TABLE IF EXISTS daily_schedule")
