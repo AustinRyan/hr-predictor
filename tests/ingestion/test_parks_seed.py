@@ -106,6 +106,27 @@ def test_seed_parks_roof_dome_for_tropicana(parks_session) -> None:
         assert roof == "dome"
 
 
+def test_seed_parks_populates_coordinates(parks_session) -> None:
+    """Regression guard: Phase 2 Task 12 discovered defaultCoordinates was silently
+    dropped; this test prevents that shape change from going silent again."""
+    with _vcr.use_cassette("venues_2021_2026.yaml"):
+        with parks_session() as s:
+            seed_parks(s, seasons=(2024,))
+            s.commit()
+
+    with parks_session() as s:
+        # Coors, Yankee, Wrigley — known primary MLB parks. All must have coords.
+        row = s.execute(
+            text(
+                "SELECT COUNT(*) FROM parks "
+                "WHERE park_id = ANY(:ids) "
+                "AND latitude IS NOT NULL AND longitude IS NOT NULL"
+            ),
+            {"ids": [19, 3313, 17]},
+        ).scalar_one()
+        assert row == 3, "All three reference parks must have lat/lon populated"
+
+
 def test_seed_parks_retractable_roofs(parks_session) -> None:
     with _vcr.use_cassette("venues_2021_2026.yaml"):
         with parks_session() as s:

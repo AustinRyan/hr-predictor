@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from src.ingestion.wire_models import (
     BoxscoreResponse,
     OpenMeteoForecastResponse,
@@ -140,3 +141,39 @@ def test_feed_live_response_tolerates_missing_subtrees() -> None:
     parsed = FeedLiveResponse.model_validate({})
     assert parsed.game_data.weather.condition is None
     assert parsed.game_data.venue.roof_type is None
+
+
+def test_venue_latitude_prefers_default_coordinates() -> None:
+    from src.ingestion.wire_models import Venue
+
+    raw = {
+        "id": 19,
+        "name": "Coors Field",
+        "location": {
+            "city": "Denver",
+            "state": "Colorado",
+            "defaultCoordinates": {"latitude": 39.7559, "longitude": -104.9942},
+            "azimuthAngle": 4.0,
+            "elevation": 5190,
+        },
+    }
+    v = Venue.model_validate(raw)
+    assert v.latitude == pytest.approx(39.7559)
+    assert v.longitude == pytest.approx(-104.9942)
+    # Still exposes orientation and elevation via the flat fields
+    assert v.location.azimuth_angle == 4.0
+    assert v.location.elevation == 5190
+
+
+def test_venue_latitude_falls_back_to_flat_fields() -> None:
+    """If a future API shape emits lat/lon at the location root, prefer those when no defaultCoordinates."""
+    from src.ingestion.wire_models import Venue
+
+    raw = {
+        "id": 99,
+        "name": "Hypothetical Park",
+        "location": {"latitude": 40.0, "longitude": -75.0},
+    }
+    v = Venue.model_validate(raw)
+    assert v.latitude == 40.0
+    assert v.longitude == -75.0

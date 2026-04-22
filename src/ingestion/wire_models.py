@@ -9,6 +9,15 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class VenueDefaultCoordinates(BaseModel):
+    """`location.defaultCoordinates` subtree from `/api/v1/venues?hydrate=location`."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    latitude: float | None = None
+    longitude: float | None = None
+
+
 class VenueLocation(BaseModel):
     """`location` subtree from MLB StatsAPI `/api/v1/venues?hydrate=location`."""
 
@@ -22,6 +31,9 @@ class VenueLocation(BaseModel):
     azimuth_angle: float | None = Field(default=None, alias="azimuthAngle")
     elevation: int | None = None
     country: str | None = None
+    default_coordinates: VenueDefaultCoordinates | None = Field(
+        default=None, alias="defaultCoordinates"
+    )
 
 
 class VenueCoordinates(BaseModel):
@@ -47,6 +59,8 @@ class Venue(BaseModel):
         loc = self.location
         if loc is None:
             return None
+        if loc.default_coordinates is not None and loc.default_coordinates.latitude is not None:
+            return loc.default_coordinates.latitude
         return loc.latitude
 
     @property
@@ -54,6 +68,8 @@ class Venue(BaseModel):
         loc = self.location
         if loc is None:
             return None
+        if loc.default_coordinates is not None and loc.default_coordinates.longitude is not None:
+            return loc.default_coordinates.longitude
         return loc.longitude
 
 
