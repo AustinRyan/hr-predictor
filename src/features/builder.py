@@ -4,7 +4,7 @@ Entry points
 ------------
 * :func:`build_features_for_game` — write rows for one game_pk.
 * :func:`build_features_for_historical` — iterate day-by-day over a date range.
-* :func:`build_features_for_today` — iterate daily_schedule for CURRENT_DATE.
+* :func:`build_features_for_today` — wrap ``_build_features_for_day(CURRENT_DATE)``.
 
 Strategy
 --------
@@ -19,6 +19,19 @@ raw per-matchup rows. A short Python post-processing pass then computes:
 
 The final dicts are batched into ``pg_insert(MatchupFeature)
 .on_conflict_do_update(...)``, making reruns idempotent.
+
+Day-batched execution
+---------------------
+The ``_build_features_for_day`` internal runs the composed CTE query
+ONCE per calendar day. ``matchup_keys`` unions historical (all
+``statcast_pitches`` rows for the day) with future (``daily_schedule``
+rows lacking statcast, joined against ``projected_lineups``). Feature
+CTEs then scan ``statcast_pitches`` once per day rather than once per
+game — Postgres plan cache stays warm and lookup loops amortize.
+
+Per-row DB round-trips in ``_finalize_row`` (park factors, days rest)
+are replaced by a per-day in-memory cache: pre-fetched in ONE query
+each at the top of ``_build_features_for_day``.
 
 Known Phase 3 gaps (documented in ``phases/phase3/NOTES.md``)
 -------------------------------------------------------------
@@ -51,13 +64,9 @@ from src.features.bullpen import bullpen_sql
 from src.features.context import (
     PA_BY_BATTING_ORDER,
     day_night_letter,
-    days_since_last_game,
     same_hand,
 )
-from src.features.park_factors_features import (
-    park_hr_factor_3yr_weighted,
-    park_hr_factor_for,
-)
+from src.features.park_factors_features import THREE_YEAR_WEIGHTS
 from src.features.pitcher_pitch_mix import pitch_mix_sql
 from src.features.pitcher_profile import pitcher_profile_sql, tto_penalty_for
 from src.features.weather_physics import (
@@ -158,32 +167,22 @@ def build_features_for_game(game_pk: int, *, engine: Engine | None = None) -> in
     Returns the number of rows written (pre-dedup — equivalent to
     ``len(matchup_keys)``). A return value of 0 means no matchup keys
     could be derived (e.g. future game with no projected lineup).
+
+    Internally resolves the game's date and calls ``_build_features_for_day``
+    scoped to that single ``game_pk``.
     """
     engine = engine or get_engine()
     session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
     with session_factory() as s:
-        is_historical = _detect_historical(s, game_pk)
-
-        raw_rows = _run_feature_query(s, game_pk, is_historical)
-        if not raw_rows:
-            _log.info(
-                "builder: no matchup rows",
-                extra={"game_pk": game_pk, "is_historical": is_historical},
-            )
+        day = _resolve_game_date(s, game_pk)
+        if day is None:
+            _log.info("builder: game_pk has no date", extra={"game_pk": game_pk})
             return 0
-
-        final_rows: list[dict[str, Any]] = [
-            _finalize_row(s, r, is_historical=is_historical) for r in raw_rows
-        ]
-        _upsert_rows(s, final_rows)
+        written = _build_features_for_day(s, day, only_game_pk=game_pk)
         s.commit()
 
-    _log.info(
-        "builder: wrote rows",
-        extra={"game_pk": game_pk, "rows": len(final_rows), "is_historical": is_historical},
-    )
-    return len(final_rows)
+    return written
 
 
 def build_features_for_historical(
@@ -192,7 +191,7 @@ def build_features_for_historical(
     *,
     engine: Engine | None = None,
 ) -> int:
-    """Iterate day-by-day over a closed date range; build each day's games."""
+    """Iterate day-by-day over a closed date range; build each day in one pass."""
     engine = engine or get_engine()
     session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
@@ -200,39 +199,101 @@ def build_features_for_historical(
     day = start_date
     while day <= end_date:
         with session_factory() as s:
-            game_pks = (
-                s.execute(
-                    text("SELECT DISTINCT game_pk FROM statcast_pitches WHERE game_date = :d"),
-                    {"d": day},
-                )
-                .scalars()
-                .all()
-            )
-
-        for gpk in game_pks:
-            total += build_features_for_game(gpk, engine=engine)
-
+            total += _build_features_for_day(s, day)
+            s.commit()
         day += timedelta(days=1)
 
     return total
 
 
 def build_features_for_today(*, engine: Engine | None = None) -> int:
-    """Iterate daily_schedule for CURRENT_DATE, build each game's features."""
+    """Build all rows for CURRENT_DATE in one day-batched pass."""
     engine = engine or get_engine()
     session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
     with session_factory() as s:
-        game_pks = (
-            s.execute(text("SELECT game_pk FROM daily_schedule WHERE game_date = CURRENT_DATE"))
-            .scalars()
-            .all()
-        )
+        today = s.execute(text("SELECT CURRENT_DATE")).scalar_one()
+        total = _build_features_for_day(s, today)
+        s.commit()
 
-    total = 0
-    for gpk in game_pks:
-        total += build_features_for_game(gpk, engine=engine)
     return total
+
+
+# ---------------------------------------------------------------------------
+# Game-date resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_game_date(session: Session, game_pk: int) -> date | None:
+    """Find the game's date from statcast_pitches, games, or daily_schedule."""
+    row = session.execute(
+        text("""
+            SELECT game_date FROM (
+                (SELECT game_date FROM statcast_pitches WHERE game_pk = :gp LIMIT 1)
+                UNION ALL
+                (SELECT game_date FROM games WHERE game_pk = :gp LIMIT 1)
+                UNION ALL
+                (SELECT game_date FROM daily_schedule WHERE game_pk = :gp LIMIT 1)
+            ) q LIMIT 1
+            """),
+        {"gp": game_pk},
+    ).scalar_one_or_none()
+    return row
+
+
+# ---------------------------------------------------------------------------
+# Day-batched core
+# ---------------------------------------------------------------------------
+
+
+def _build_features_for_day(
+    session: Session,
+    day: date,
+    *,
+    only_game_pk: int | None = None,
+) -> int:
+    """Build all feature rows for one calendar day in a single pass.
+
+    Gathers the day's matchup keys (historical + future) via ONE
+    ``matchup_keys`` CTE, runs the composed feature CTE query once, and
+    applies Python post-processing row-by-row against an in-memory cache
+    of park factors and days-rest lookups (pre-fetched in two queries).
+
+    When ``only_game_pk`` is provided, the matchup key CTE restricts to
+    that game_pk only — same query shape, just with an extra predicate
+    in both the historical and future branches.
+    """
+    raw_rows = _run_feature_query(session, day=day, only_game_pk=only_game_pk)
+    if not raw_rows:
+        _log.info(
+            "builder: no matchup rows",
+            extra={"day": str(day), "only_game_pk": only_game_pk},
+        )
+        return 0
+
+    # Bullpen runs as a separate query against a deduplicated matchup_keys
+    # (distinct pitcher-day). Its aggregates only depend on mk.pitcher_id,
+    # so running it per-matchup-key costs ~30x more than it needs to.
+    # Merge results back by (pitcher_id, reference_date).
+    bullpen_by_key = _run_bullpen_query(session, day=day, only_game_pk=only_game_pk)
+    for row in raw_rows:
+        key = (int(row["pitcher_id"]), row["game_date"])
+        vals = bullpen_by_key.get(key)
+        if vals is not None:
+            row.update(vals)
+        else:
+            for col in _BULLPEN_COLS:
+                row.setdefault(col, None)
+
+    cache = _DayCache.build(session, day, raw_rows)
+    final_rows: list[dict[str, Any]] = [_finalize_row(r, cache) for r in raw_rows]
+    _upsert_rows(session, final_rows)
+
+    _log.info(
+        "builder: wrote rows",
+        extra={"day": str(day), "rows": len(final_rows), "only_game_pk": only_game_pk},
+    )
+    return len(final_rows)
 
 
 # ---------------------------------------------------------------------------
@@ -240,38 +301,43 @@ def build_features_for_today(*, engine: Engine | None = None) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _detect_historical(session: Session, game_pk: int) -> bool:
-    """True iff any statcast_pitches rows exist for this game_pk."""
-    return bool(
-        session.execute(
-            text("SELECT COUNT(*) > 0 FROM statcast_pitches WHERE game_pk = :gp"),
-            {"gp": game_pk},
-        ).scalar_one()
-    )
+def _matchup_keys_cte(*, only_game_pk: int | None) -> str:
+    """Build the matchup_keys CTE body covering both historical + future rows
+    for a single calendar day.
 
+    The ``NOT EXISTS`` guard on the future branch prevents double-counting
+    when the same ``game_pk`` has both statcast_pitches (final games) and
+    a daily_schedule row.
+    """
+    gp_hist = "AND sp.game_pk = :only_game_pk" if only_game_pk is not None else ""
+    gp_fut = "AND ds.game_pk = :only_game_pk" if only_game_pk is not None else ""
 
-def _matchup_keys_cte(*, is_historical: bool) -> str:
-    if is_historical:
-        return """
-            SELECT DISTINCT
-                sp.game_pk,
-                sp.game_date AS reference_date,
-                sp.batter AS batter_id,
-                sp.pitcher AS pitcher_id
-            FROM statcast_pitches sp
-            WHERE sp.game_pk = :game_pk
-        """
-    return """
+    return f"""
+        SELECT DISTINCT
+            sp.game_pk,
+            sp.game_date AS reference_date,
+            sp.batter AS batter_id,
+            sp.pitcher AS pitcher_id,
+            TRUE AS is_historical
+        FROM statcast_pitches sp
+        WHERE sp.game_date = :day
+        {gp_hist}
+        UNION ALL
         SELECT
             ds.game_pk,
             ds.game_date AS reference_date,
             pl.batter_id,
             CASE WHEN pl.team_id = ds.home_team_id
                  THEN ds.probable_away_pitcher_id
-                 ELSE ds.probable_home_pitcher_id END AS pitcher_id
+                 ELSE ds.probable_home_pitcher_id END AS pitcher_id,
+            FALSE AS is_historical
         FROM daily_schedule ds
         JOIN projected_lineups pl ON pl.game_pk = ds.game_pk
-        WHERE ds.game_pk = :game_pk
+        WHERE ds.game_date = :day
+        {gp_fut}
+          AND NOT EXISTS (
+              SELECT 1 FROM statcast_pitches sp2 WHERE sp2.game_pk = ds.game_pk
+          )
           AND (pl.team_id = ds.home_team_id OR pl.team_id = ds.away_team_id)
           AND CASE WHEN pl.team_id = ds.home_team_id
                    THEN ds.probable_away_pitcher_id
@@ -286,23 +352,25 @@ def _qualified_cols(alias: str, cols: tuple[str, ...]) -> str:
     return ",\n        ".join(f"{alias}.{c} AS {c}" for c in cols)
 
 
-def _run_feature_query(session: Session, game_pk: int, is_historical: bool) -> list[dict[str, Any]]:
-    """Execute the composed CTE query and return raw per-matchup rows."""
-    matchup_cte = _matchup_keys_cte(is_historical=is_historical)
+def _run_feature_query(
+    session: Session,
+    *,
+    day: date,
+    only_game_pk: int | None,
+) -> list[dict[str, Any]]:
+    """Execute the composed CTE query for one day and return raw per-matchup rows."""
+    matchup_cte = _matchup_keys_cte(only_game_pk=only_game_pk)
 
-    if is_historical:
-        label_sql = (
-            "EXISTS (SELECT 1 FROM statcast_pitches sp_hr "
-            "WHERE sp_hr.game_pk = mk.game_pk AND sp_hr.batter = mk.batter_id "
-            "AND sp_hr.pitcher = mk.pitcher_id AND sp_hr.events = 'home_run') AS hr_on_pa"
-        )
-        is_hist_literal = "TRUE"
-    else:
-        label_sql = "NULL::boolean AS hr_on_pa"
-        is_hist_literal = "FALSE"
+    # Per-row label — historical vs future is now a per-row attribute of
+    # matchup_keys rather than a whole-query switch.
+    label_sql = (
+        "CASE WHEN mk.is_historical THEN "
+        " EXISTS (SELECT 1 FROM statcast_pitches sp_hr "
+        "  WHERE sp_hr.game_pk = mk.game_pk AND sp_hr.batter = mk.batter_id "
+        "  AND sp_hr.pitcher = mk.pitcher_id AND sp_hr.events = 'home_run') "
+        "ELSE NULL::boolean END AS hr_on_pa"
+    )
 
-    # The daily_schedule join only makes sense for future games; for
-    # historical we LEFT JOIN anyway (harmless — all NULLs).
     big_sql = f"""
     WITH matchup_keys AS (
         {matchup_cte}
@@ -324,16 +392,18 @@ def _run_feature_query(session: Session, game_pk: int, is_historical: bool) -> l
     ),
     pitcher_pm AS (
         {pitch_mix_sql()}
-    ),
-    bullpen_cte AS (
-        {bullpen_sql()}
     )
+    -- bullpen_cte intentionally omitted here; run separately via
+    -- _run_bullpen_query on a deduplicated (pitcher_id, reference_date)
+    -- matchup_keys to avoid a combinatorial plan explosion when joined
+    -- with the other 6 CTEs (bullpen has no `sp.pitcher = ...` equi-join
+    -- predicate, so the planner cross-joins statcast × matchup_keys).
     SELECT
         mk.game_pk,
         mk.reference_date AS game_date,
         mk.batter_id,
         mk.pitcher_id,
-        {is_hist_literal} AS is_historical,
+        mk.is_historical AS is_historical,
         {label_sql},
         {_qualified_cols('br', _BATTER_ROLLING_COLS)},
         {_qualified_cols('bp_pl', _BATTER_PLATOON_COLS)},
@@ -341,7 +411,6 @@ def _run_feature_query(session: Session, game_pk: int, is_historical: bool) -> l
         {_qualified_cols('btk', _BATTER_BT_COLS)},
         {_qualified_cols('pp', _PITCHER_PROFILE_COLS)},
         {_qualified_cols('pm', _PITCH_MIX_COLS)},
-        {_qualified_cols('bpn', _BULLPEN_COLS)},
         -- Park lookup (inline).
         COALESCE(g.venue_id, ds.venue_id) AS park_id,
         pk.elevation_ft AS park_elevation_ft,
@@ -359,7 +428,7 @@ def _run_feature_query(session: Session, game_pk: int, is_historical: bool) -> l
         -- Home/away classification (historical: via inning_topbot first pitch;
         -- future: via projected_lineups.team_id == home_team_id).
         CASE
-            WHEN {is_hist_literal} THEN (
+            WHEN mk.is_historical THEN (
                 SELECT CASE sp_ha.inning_topbot WHEN 'Bot' THEN TRUE ELSE FALSE END
                 FROM statcast_pitches sp_ha
                 WHERE sp_ha.game_pk = mk.game_pk
@@ -406,9 +475,6 @@ def _run_feature_query(session: Session, game_pk: int, is_historical: bool) -> l
     LEFT JOIN pitcher_pm pm
       ON pm.game_pk = mk.game_pk AND pm.batter_id = mk.batter_id
      AND pm.pitcher_id = mk.pitcher_id AND pm.reference_date = mk.reference_date
-    LEFT JOIN bullpen_cte bpn
-      ON bpn.game_pk = mk.game_pk AND bpn.batter_id = mk.batter_id
-     AND bpn.pitcher_id = mk.pitcher_id AND bpn.reference_date = mk.reference_date
     LEFT JOIN games g ON g.game_pk = mk.game_pk
     LEFT JOIN daily_schedule ds ON ds.game_pk = mk.game_pk
     LEFT JOIN parks pk ON pk.park_id = COALESCE(g.venue_id, ds.venue_id)
@@ -432,8 +498,204 @@ def _run_feature_query(session: Session, game_pk: int, is_historical: bool) -> l
     ) wf ON TRUE
     """
 
-    result = session.execute(text(big_sql), {"game_pk": game_pk}).mappings().all()
+    params: dict[str, Any] = {"day": day}
+    if only_game_pk is not None:
+        params["only_game_pk"] = only_game_pk
+
+    result = session.execute(text(big_sql), params).mappings().all()
     return [dict(r) for r in result]
+
+
+def _run_bullpen_query(
+    session: Session,
+    *,
+    day: date,
+    only_game_pk: int | None,
+) -> dict[tuple[int, date], dict[str, Any]]:
+    """Run the bullpen CTE on a distinct ``(pitcher_id, reference_date)``
+    ``matchup_keys`` and return a dict keyed by ``(pitcher_id, reference_date)``.
+
+    The bullpen CTE's aggregates only depend on ``mk.pitcher_id`` —
+    running it per-(game_pk, batter_id, pitcher_id) tuple wastes work.
+    We feed it synthetic ``game_pk = 0``, ``batter_id = 0`` so it dedupes
+    to one row per pitcher-day. Since ``bullpen_sql()`` isn't modified,
+    the output contract is preserved; we just select the aggregate
+    columns and key back in Python.
+    """
+    base_mk = _matchup_keys_cte(only_game_pk=only_game_pk)
+    distinct_mk = f"""
+        SELECT 0::int AS game_pk, 0::int AS batter_id, d.pitcher_id,
+               d.reference_date, FALSE AS is_historical
+        FROM (
+            SELECT DISTINCT pitcher_id, reference_date FROM ({base_mk}) raw_mk
+        ) d
+    """
+    q = f"""
+    WITH matchup_keys AS (
+        {distinct_mk}
+    ),
+    bullpen_cte AS (
+        {bullpen_sql()}
+    )
+    SELECT
+        bpn.pitcher_id,
+        bpn.reference_date AS game_date,
+        {_qualified_cols('bpn', _BULLPEN_COLS)}
+    FROM bullpen_cte bpn
+    """
+    params: dict[str, Any] = {"day": day}
+    if only_game_pk is not None:
+        params["only_game_pk"] = only_game_pk
+
+    rows = session.execute(text(q), params).mappings().all()
+    out: dict[tuple[int, date], dict[str, Any]] = {}
+    for r in rows:
+        key = (int(r["pitcher_id"]), r["game_date"])
+        out[key] = {col: r[col] for col in _BULLPEN_COLS}
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Per-day cache for park factors + days-rest lookups
+# ---------------------------------------------------------------------------
+
+
+class _DayCache:
+    """In-memory caches pre-fetched once per day.
+
+    * ``park_factor[(hand, park_id, season)]`` → HR factor value.
+    * ``days_rest[(player_id, reference_date)]`` → days since last game.
+
+    Replaces the 4-trip-per-row lookup pattern in the legacy
+    ``_finalize_row`` (park_factor, park_factor_3yr, batter_days_rest,
+    pitcher_days_rest). Two queries per day, regardless of row count.
+    """
+
+    __slots__ = ("park_factor", "days_rest")
+
+    def __init__(
+        self,
+        park_factor: dict[tuple[str, int, int], float],
+        days_rest: dict[tuple[int, date], int],
+    ) -> None:
+        self.park_factor = park_factor
+        self.days_rest = days_rest
+
+    @classmethod
+    def build(
+        cls,
+        session: Session,
+        day: date,
+        raw_rows: list[dict[str, Any]],
+    ) -> _DayCache:
+        """Pre-fetch lookups for every (park, season, handedness) combo
+        and every (player, reference_date) pair found in ``raw_rows``.
+        """
+        # Collect the lookup keys we need.
+        park_ids: set[int] = set()
+        player_ids: set[int] = set()
+        ref_dates: set[date] = set()
+        seasons: set[int] = set()
+
+        for r in raw_rows:
+            pid = r.get("park_id")
+            if pid is not None:
+                park_ids.add(int(pid))
+            b = r.get("batter_id")
+            if b is not None:
+                player_ids.add(int(b))
+            p = r.get("pitcher_id")
+            if p is not None:
+                player_ids.add(int(p))
+            rd = r.get("game_date")
+            if isinstance(rd, date):
+                ref_dates.add(rd)
+                # 3yr weighted pulls [ref, ref-1, ref-2].
+                for offset in range(3):
+                    seasons.add(rd.year - offset)
+                seasons.add(rd.year)
+
+        park_factor: dict[tuple[str, int, int], float] = {}
+        if park_ids and seasons:
+            rows = (
+                session.execute(
+                    text("""
+                    SELECT batter_handedness AS hand, park_id, season, value
+                    FROM park_factors
+                    WHERE metric = 'hr'
+                      AND park_id = ANY(:park_ids)
+                      AND season = ANY(:seasons)
+                      AND batter_handedness IN ('L', 'R')
+                    """),
+                    {"park_ids": list(park_ids), "seasons": list(seasons)},
+                )
+                .mappings()
+                .all()
+            )
+            for r in rows:
+                park_factor[(r["hand"], int(r["park_id"]), int(r["season"]))] = float(r["value"])
+
+        days_rest: dict[tuple[int, date], int] = {}
+        if player_ids and ref_dates:
+            # Per (player, reference_date), find MAX(game_date) < reference_date.
+            # The reference_date set is small (usually 1-2 dates), so we can
+            # GROUP BY player and pick up the most-recent prior game for each
+            # reference date in a single CROSS JOIN. Player set is bounded
+            # (~1000 for a full day), so this stays cheap.
+            rows = (
+                session.execute(
+                    text("""
+                    WITH refs AS (
+                        SELECT unnest(CAST(:ref_dates AS date[])) AS ref_date
+                    ),
+                    pids AS (
+                        SELECT unnest(CAST(:player_ids AS bigint[])) AS player_id
+                    )
+                    SELECT pids.player_id, refs.ref_date,
+                        (
+                            SELECT MAX(sp.game_date)
+                            FROM statcast_pitches sp
+                            WHERE (sp.batter = pids.player_id OR sp.pitcher = pids.player_id)
+                              AND sp.game_date < refs.ref_date
+                        ) AS last_date
+                    FROM pids CROSS JOIN refs
+                    """),
+                    {
+                        "player_ids": list(player_ids),
+                        "ref_dates": list(ref_dates),
+                    },
+                )
+                .mappings()
+                .all()
+            )
+            for r in rows:
+                last = r["last_date"]
+                if last is not None:
+                    days_rest[(int(r["player_id"]), r["ref_date"])] = (r["ref_date"] - last).days
+
+        return cls(park_factor=park_factor, days_rest=days_rest)
+
+    def park_hr_factor(self, hand: str, park_id: int, season: int) -> float | None:
+        return self.park_factor.get((hand, park_id, season))
+
+    def park_hr_factor_3yr(self, hand: str, park_id: int, ref_season: int) -> float | None:
+        """3-year weighted HR factor, using the pre-fetched cache.
+
+        Mirrors ``park_factors_features.park_hr_factor_3yr_weighted`` — same
+        weights, same re-normalization on missing seasons, same None-when-all-missing.
+        """
+        pairs: list[tuple[float, float]] = []
+        for weight, offset in zip(THREE_YEAR_WEIGHTS, range(3), strict=True):
+            value = self.park_factor.get((hand, park_id, ref_season - offset))
+            if value is not None:
+                pairs.append((weight, value))
+        if not pairs:
+            return None
+        total_weight = sum(w for w, _ in pairs)
+        return sum(w * v for w, v in pairs) / total_weight
+
+    def days_since_last_game(self, player_id: int, reference_date: date) -> int | None:
+        return self.days_rest.get((player_id, reference_date))
 
 
 # ---------------------------------------------------------------------------
@@ -441,12 +703,7 @@ def _run_feature_query(session: Session, game_pk: int, is_historical: bool) -> l
 # ---------------------------------------------------------------------------
 
 
-def _finalize_row(
-    session: Session,
-    raw: dict[str, Any],
-    *,
-    is_historical: bool,
-) -> dict[str, Any]:
+def _finalize_row(raw: dict[str, Any], cache: _DayCache) -> dict[str, Any]:
     """Derive physics / park-factor / context columns from a raw SQL row."""
     out = dict(raw)
 
@@ -478,17 +735,15 @@ def _finalize_row(
     is_roof_closed = roof_status == "closed" or park_roof_type == "dome"
     out = apply_roof_gating(out, is_roof_closed=is_roof_closed)
 
-    # --- Park factors -----------------------------------------------------
-    # Season = the reference year. batter_hand from stand or players.bats.
+    # --- Park factors (cached) -------------------------------------------
     ref_date = out["game_date"]
     season = ref_date.year if isinstance(ref_date, date) else int(str(ref_date)[:4])
     park_id = out.get("park_id")
     batter_hand = out.get("batter_stand") or out.get("batter_bats_fallback")
     if park_id is not None and batter_hand in {"L", "R"}:
-        out["park_hr_factor_hand"] = park_hr_factor_for(batter_hand, int(park_id), season, session)
-        out["park_hr_factor_hand_3yr"] = park_hr_factor_3yr_weighted(
-            batter_hand, int(park_id), season, session
-        )
+        pid_int = int(park_id)
+        out["park_hr_factor_hand"] = cache.park_hr_factor(batter_hand, pid_int, season)
+        out["park_hr_factor_hand_3yr"] = cache.park_hr_factor_3yr(batter_hand, pid_int, season)
     else:
         out["park_hr_factor_hand"] = None
         out["park_hr_factor_hand_3yr"] = None
@@ -512,9 +767,9 @@ def _finalize_row(
         else:
             out["ctx_day_night"] = None
 
-    # Days rest (batter + pitcher).
-    out["ctx_batter_days_rest"] = days_since_last_game(int(out["batter_id"]), ref_date, session)
-    out["ctx_pitcher_days_rest"] = days_since_last_game(int(out["pitcher_id"]), ref_date, session)
+    # Days rest (batter + pitcher) — cached.
+    out["ctx_batter_days_rest"] = cache.days_since_last_game(int(out["batter_id"]), ref_date)
+    out["ctx_pitcher_days_rest"] = cache.days_since_last_game(int(out["pitcher_id"]), ref_date)
 
     # Same-hand — prefer statcast observation, fall back to players table.
     batter_stand = out.get("batter_stand") or out.get("batter_bats_fallback")

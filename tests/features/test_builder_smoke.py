@@ -128,3 +128,45 @@ def test_build_features_for_today_no_schedule(test_engine: Engine, clean_tables)
     from src.features.builder import build_features_for_today
 
     assert build_features_for_today(engine=test_engine) == 0
+
+
+@pytest.mark.integration
+def test_day_batched_builds_multiple_games_in_one_pass(leakage_setup) -> None:
+    """Seed two synthetic games on the same day, verify both land via the day path."""
+    from src.features.builder import build_features_for_historical
+
+    session_factory = sessionmaker(bind=leakage_setup, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        # Seed a second game on 2024-07-04.
+        s.execute(
+            text(
+                "INSERT INTO games (game_pk, game_date, season, venue_id, home_team_id, "
+                "away_team_id, status, day_night) "
+                "VALUES (888004, '2024-07-04', 2024, 88801, 1, 2, 'Final', 'N')"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO statcast_pitches "
+                "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, "
+                " stand, p_throws, launch_speed, events, "
+                " estimated_woba_using_speedangle, inning_topbot) "
+                "VALUES ('2024-07-04', 888004, 1, 1, 888005, 888006, 'L', 'R', 95.0, "
+                " 'single', 0.4, 'Top')"
+            )
+        )
+        s.commit()
+
+    written = build_features_for_historical(
+        date(2024, 7, 4), date(2024, 7, 4), engine=leakage_setup
+    )
+    assert written >= 2  # At least one row per game
+
+    with session_factory() as s:
+        rows = s.execute(
+            text(
+                "SELECT COUNT(DISTINCT game_pk) FROM matchup_features "
+                "WHERE game_date = '2024-07-04'"
+            )
+        ).scalar_one()
+    assert rows == 2
