@@ -34,6 +34,49 @@ close.
 
 ---
 
+## Task 11 — Feature builder (`src/features/builder.py`)
+
+- **Hybrid strategy, per PROMPT guidance.** One composed SQL query runs
+  all seven feature CTEs + joins to ``games``, ``parks``,
+  ``daily_schedule``, ``projected_lineups``, ``players``, and latest
+  ``weather_forecasts``. A Python post-processing pass then derives
+  physics (air density, wind carry), park factors (per-hand + 3-yr
+  weighted), and the remaining context columns (projected PA, day/night
+  fallback, days rest, same-hand, TTO penalty).
+- **Explicit column enumeration** (``_BATTER_ROLLING_COLS`` etc.)
+  rather than ``br.*`` in the SELECT — every CTE re-emits
+  ``(game_pk, batter_id, reference_date)`` keys and Postgres raises
+  ``column ambiguously defined`` otherwise. Tedious but unavoidable.
+- **Historical vs future detection** via ``SELECT COUNT(*) > 0 FROM
+  statcast_pitches WHERE game_pk = :gp``. Historical reads matchup keys
+  from distinct ``(batter, pitcher)`` pairs in statcast; future joins
+  ``daily_schedule`` to ``projected_lineups`` with the batter matched to
+  the OPPOSING probable pitcher.
+- **Label (``hr_on_pa``)** inlined via ``EXISTS (SELECT 1 FROM
+  statcast_pitches ...)``. NULL for future rows.
+- **Roof gating triggers on EITHER ``daily_schedule.roof_status =
+  'closed'`` OR ``parks.roof_type = 'dome'``.** A dome park without a
+  roof_status signal still counts as climate-controlled.
+- **Known Phase 3 NULL columns (documented in the builder docstring):**
+  - ``wx_*`` for historical rows — Phase 2 only stores today/future
+    forecasts.
+  - ``ctx_batting_order`` and ``ctx_projected_pa`` for historical rows
+    — no ``projected_lineups`` for past games.
+  - ``b_pulled_fb_pct_*`` — batter_rolling emits NULL literal until
+    hc_x/hc_y-based pull classification lands.
+- **Leakage test (``tests/features/test_leakage.py``)** seeds three
+  batter PAs (80, 90 in prior games; 120 on the target game) and
+  asserts ``b_avg_ev_season`` equals 85 (not 96.67), ``b_pa_count_season``
+  equals 2 (not 3), and that ``hr_on_pa`` is still populated (``True``)
+  from the target-game HR — label comes from the current game, features
+  do not.
+- **Idempotency** via ``pg_insert(MatchupFeature)
+  .on_conflict_do_update(...)`` with the composite PK
+  ``(game_date, game_pk, batter_id, pitcher_id)``. ``built_at`` is
+  refreshed on every upsert.
+
+---
+
 ## Task 10 — bullpen features are a league-wide proxy
 
 `src/features/bullpen.py` aggregates over every pitch in the season
