@@ -21,7 +21,12 @@ Query parameters we depend on:
   - ``batSide`` (camelCase, not ``bat_side``): ``L`` | ``R``
   - ``year``:   e.g. ``2024``
   - ``type=year``: fixes the grouping to per-season
-  - ``rolling=1``: single-season (``0``-less default is 3-year rolling)
+  - ``rolling``: omitted — Savant's default is 3-year rolling.
+
+Uses 3-year rolling factors (Savant default) — single-season numbers
+are too noisy at the start of each year. See ``phases/phase2/NOTES.md``
+"Park factors — Coors HR acceptance threshold calibration" for the
+reasoning.
 
 These are all server-rendered: the embedded ``var data`` reflects the
 querystring. See ``phases/phase2/NOTES.md`` for the provenance trail and
@@ -102,12 +107,16 @@ def _extract_data_literal(html_text: str) -> list[dict[str, Any]]:
 
 
 def _fetch_handedness_html(season: int, handedness: str) -> str:
-    """Hit the Savant leaderboard for (season, handedness). Returns raw HTML."""
+    """Hit the Savant leaderboard for (season, handedness). Returns raw HTML.
+
+    ``rolling`` is intentionally omitted — Savant's default is 3-year rolling,
+    which is the stable operational view. Single-season (``rolling=1``) is
+    too noisy in the first weeks of each year.
+    """
     params = {
         "batSide": handedness,
         "year": str(season),
         "type": "year",
-        "rolling": "1",
     }
     resp = requests.get(_BASE_URL, params=params, timeout=30.0)
     resp.raise_for_status()

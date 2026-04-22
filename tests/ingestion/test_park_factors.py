@@ -167,12 +167,14 @@ def test_fetch_handedness_html_builds_expected_request(
     html = _fetch_handedness_html(2024, "R")
     assert "var data" in html
     assert captured["url"].endswith("/leaderboard/statcast-park-factors")
+    # `rolling` is intentionally omitted so Savant returns its 3-year-rolling
+    # default view. Single-season is too noisy early in a season.
     assert captured["params"] == {
         "batSide": "R",
         "year": "2024",
         "type": "year",
-        "rolling": "1",
     }
+    assert "rolling" not in captured["params"]
 
 
 @pytest.mark.integration
