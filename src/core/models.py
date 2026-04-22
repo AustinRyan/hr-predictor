@@ -260,3 +260,178 @@ class ParkFactor(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class MatchupFeature(Base):
+    """Phase 3 wide feature row, one per (batter, pitcher) matchup per game.
+
+    Partitioned by `game_date` yearly (same pattern as `statcast_pitches`);
+    Postgres requires the partition key to appear in the PK, hence the
+    composite `(game_date, game_pk, batter_id, pitcher_id)`.
+
+    The ORM is descriptive-only — actual DDL is owned by migration
+    `0004_feature_store`. See `phases/phase3/PROMPT.md` § "Schema
+    additions" for the canonical column list and groupings.
+    """
+
+    __tablename__ = "matchup_features"
+    __table_args__ = {"postgresql_partition_by": "RANGE (game_date)"}
+
+    # Keys (part of composite PK)
+    game_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    game_pk: Mapped[int] = mapped_column(Integer, primary_key=True)
+    batter_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    pitcher_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    is_historical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    hr_on_pa: Mapped[bool | None] = mapped_column(Boolean)
+
+    # Batter rolling windows (b_{metric}_{7d,14d,30d,season}) — all nullable floats
+    b_barrel_pct_7d: Mapped[float | None] = mapped_column(Float)
+    b_barrel_pct_14d: Mapped[float | None] = mapped_column(Float)
+    b_barrel_pct_30d: Mapped[float | None] = mapped_column(Float)
+    b_barrel_pct_season: Mapped[float | None] = mapped_column(Float)
+    b_hardhit_pct_7d: Mapped[float | None] = mapped_column(Float)
+    b_hardhit_pct_14d: Mapped[float | None] = mapped_column(Float)
+    b_hardhit_pct_30d: Mapped[float | None] = mapped_column(Float)
+    b_hardhit_pct_season: Mapped[float | None] = mapped_column(Float)
+    b_avg_ev_7d: Mapped[float | None] = mapped_column(Float)
+    b_avg_ev_14d: Mapped[float | None] = mapped_column(Float)
+    b_avg_ev_30d: Mapped[float | None] = mapped_column(Float)
+    b_avg_ev_season: Mapped[float | None] = mapped_column(Float)
+    b_p90_ev_7d: Mapped[float | None] = mapped_column(Float)
+    b_p90_ev_14d: Mapped[float | None] = mapped_column(Float)
+    b_p90_ev_30d: Mapped[float | None] = mapped_column(Float)
+    b_p90_ev_season: Mapped[float | None] = mapped_column(Float)
+    b_avg_la_7d: Mapped[float | None] = mapped_column(Float)
+    b_avg_la_14d: Mapped[float | None] = mapped_column(Float)
+    b_avg_la_30d: Mapped[float | None] = mapped_column(Float)
+    b_avg_la_season: Mapped[float | None] = mapped_column(Float)
+    b_sweet_spot_pct_7d: Mapped[float | None] = mapped_column(Float)
+    b_sweet_spot_pct_14d: Mapped[float | None] = mapped_column(Float)
+    b_sweet_spot_pct_30d: Mapped[float | None] = mapped_column(Float)
+    b_sweet_spot_pct_season: Mapped[float | None] = mapped_column(Float)
+    b_pulled_fb_pct_7d: Mapped[float | None] = mapped_column(Float)
+    b_pulled_fb_pct_14d: Mapped[float | None] = mapped_column(Float)
+    b_pulled_fb_pct_30d: Mapped[float | None] = mapped_column(Float)
+    b_pulled_fb_pct_season: Mapped[float | None] = mapped_column(Float)
+    b_xwobacon_7d: Mapped[float | None] = mapped_column(Float)
+    b_xwobacon_14d: Mapped[float | None] = mapped_column(Float)
+    b_xwobacon_30d: Mapped[float | None] = mapped_column(Float)
+    b_xwobacon_season: Mapped[float | None] = mapped_column(Float)
+    b_xiso_7d: Mapped[float | None] = mapped_column(Float)
+    b_xiso_14d: Mapped[float | None] = mapped_column(Float)
+    b_xiso_30d: Mapped[float | None] = mapped_column(Float)
+    b_xiso_season: Mapped[float | None] = mapped_column(Float)
+    b_hr_per_pa_7d: Mapped[float | None] = mapped_column(Float)
+    b_hr_per_pa_14d: Mapped[float | None] = mapped_column(Float)
+    b_hr_per_pa_30d: Mapped[float | None] = mapped_column(Float)
+    b_hr_per_pa_season: Mapped[float | None] = mapped_column(Float)
+    b_pa_count_7d: Mapped[int | None] = mapped_column(Integer)
+    b_pa_count_14d: Mapped[int | None] = mapped_column(Integer)
+    b_pa_count_30d: Mapped[int | None] = mapped_column(Integer)
+    b_pa_count_season: Mapped[int | None] = mapped_column(Integer)
+
+    # Batter platoon splits (raw + regressed hr/pa)
+    b_vs_lhp_barrel_pct: Mapped[float | None] = mapped_column(Float)
+    b_vs_rhp_barrel_pct: Mapped[float | None] = mapped_column(Float)
+    b_vs_lhp_xwoba: Mapped[float | None] = mapped_column(Float)
+    b_vs_rhp_xwoba: Mapped[float | None] = mapped_column(Float)
+    b_vs_lhp_hr_per_pa: Mapped[float | None] = mapped_column(Float)
+    b_vs_rhp_hr_per_pa: Mapped[float | None] = mapped_column(Float)
+    b_vs_lhp_hr_per_pa_reg: Mapped[float | None] = mapped_column(Float)
+    b_vs_rhp_hr_per_pa_reg: Mapped[float | None] = mapped_column(Float)
+    b_vs_lhp_pa_count: Mapped[int | None] = mapped_column(Integer)
+    b_vs_rhp_pa_count: Mapped[int | None] = mapped_column(Integer)
+
+    # Batter vs pitch-type (2-season window)
+    b_xwoba_vs_ff: Mapped[float | None] = mapped_column(Float)
+    b_xwoba_vs_si: Mapped[float | None] = mapped_column(Float)
+    b_xwoba_vs_fc: Mapped[float | None] = mapped_column(Float)
+    b_xwoba_vs_sl: Mapped[float | None] = mapped_column(Float)
+    b_xwoba_vs_cu: Mapped[float | None] = mapped_column(Float)
+    b_xwoba_vs_ch: Mapped[float | None] = mapped_column(Float)
+    b_xwoba_vs_fs: Mapped[float | None] = mapped_column(Float)
+    b_hr_rate_vs_ff: Mapped[float | None] = mapped_column(Float)
+    b_hr_rate_vs_si: Mapped[float | None] = mapped_column(Float)
+    b_hr_rate_vs_fc: Mapped[float | None] = mapped_column(Float)
+    b_hr_rate_vs_sl: Mapped[float | None] = mapped_column(Float)
+    b_hr_rate_vs_cu: Mapped[float | None] = mapped_column(Float)
+    b_hr_rate_vs_ch: Mapped[float | None] = mapped_column(Float)
+    b_hr_rate_vs_fs: Mapped[float | None] = mapped_column(Float)
+    b_pa_count_vs_ff: Mapped[int | None] = mapped_column(Integer)
+    b_pa_count_vs_si: Mapped[int | None] = mapped_column(Integer)
+    b_pa_count_vs_fc: Mapped[int | None] = mapped_column(Integer)
+    b_pa_count_vs_sl: Mapped[int | None] = mapped_column(Integer)
+    b_pa_count_vs_cu: Mapped[int | None] = mapped_column(Integer)
+    b_pa_count_vs_ch: Mapped[int | None] = mapped_column(Integer)
+    b_pa_count_vs_fs: Mapped[int | None] = mapped_column(Integer)
+
+    # Batter bat-tracking (2024+ only, nullable earlier)
+    b_avg_bat_speed: Mapped[float | None] = mapped_column(Float)
+    b_squared_up_pct: Mapped[float | None] = mapped_column(Float)
+    b_blast_rate: Mapped[float | None] = mapped_column(Float)
+
+    # Pitcher profile
+    p_hr_per_9_season: Mapped[float | None] = mapped_column(Float)
+    p_hr_per_9_career: Mapped[float | None] = mapped_column(Float)
+    p_barrel_pct_allowed_season: Mapped[float | None] = mapped_column(Float)
+    p_hardhit_pct_allowed_season: Mapped[float | None] = mapped_column(Float)
+    p_fb_pct: Mapped[float | None] = mapped_column(Float)
+    p_gb_pct: Mapped[float | None] = mapped_column(Float)
+    p_k_pct: Mapped[float | None] = mapped_column(Float)
+    p_bb_pct: Mapped[float | None] = mapped_column(Float)
+
+    # Pitcher handedness splits
+    p_vs_lhb_xwoba_allowed: Mapped[float | None] = mapped_column(Float)
+    p_vs_rhb_xwoba_allowed: Mapped[float | None] = mapped_column(Float)
+    p_vs_lhb_hr_rate: Mapped[float | None] = mapped_column(Float)
+    p_vs_rhb_hr_rate: Mapped[float | None] = mapped_column(Float)
+
+    # Pitcher pitch mix & velocity
+    p_ff_usage: Mapped[float | None] = mapped_column(Float)
+    p_si_usage: Mapped[float | None] = mapped_column(Float)
+    p_fc_usage: Mapped[float | None] = mapped_column(Float)
+    p_sl_usage: Mapped[float | None] = mapped_column(Float)
+    p_cu_usage: Mapped[float | None] = mapped_column(Float)
+    p_ch_usage: Mapped[float | None] = mapped_column(Float)
+    p_fs_usage: Mapped[float | None] = mapped_column(Float)
+    p_ff_velo_avg: Mapped[float | None] = mapped_column(Float)
+    p_primary_pitch: Mapped[str | None] = mapped_column(String(5))
+
+    # Pitcher TTO
+    p_tto_penalty: Mapped[float | None] = mapped_column(Float)
+
+    # Opposing bullpen
+    bp_barrel_pct_allowed_season: Mapped[float | None] = mapped_column(Float)
+    bp_hr_per_9_season: Mapped[float | None] = mapped_column(Float)
+
+    # Park factors
+    park_hr_factor_hand: Mapped[float | None] = mapped_column(Float)
+    park_hr_factor_hand_3yr: Mapped[float | None] = mapped_column(Float)
+    park_id: Mapped[int | None] = mapped_column(Integer)
+    park_elevation_ft: Mapped[int | None] = mapped_column(Integer)
+
+    # Weather
+    wx_temperature_f: Mapped[float | None] = mapped_column(Float)
+    wx_humidity_pct: Mapped[float | None] = mapped_column(Float)
+    wx_pressure_hpa: Mapped[float | None] = mapped_column(Float)
+    wx_air_density_relative: Mapped[float | None] = mapped_column(Float)
+    wx_wind_speed_mph: Mapped[float | None] = mapped_column(Float)
+    wx_wind_carry_lf: Mapped[float | None] = mapped_column(Float)
+    wx_wind_carry_cf: Mapped[float | None] = mapped_column(Float)
+    wx_wind_carry_rf: Mapped[float | None] = mapped_column(Float)
+    wx_is_roof_closed: Mapped[bool | None] = mapped_column(Boolean)
+
+    # Context
+    ctx_batting_order: Mapped[int | None] = mapped_column(SmallInteger)
+    ctx_projected_pa: Mapped[float | None] = mapped_column(Float)
+    ctx_day_night: Mapped[str | None] = mapped_column(String(1))
+    ctx_is_home: Mapped[bool | None] = mapped_column(Boolean)
+    ctx_batter_days_rest: Mapped[int | None] = mapped_column(Integer)
+    ctx_pitcher_days_rest: Mapped[int | None] = mapped_column(Integer)
+    ctx_same_hand: Mapped[bool | None] = mapped_column(Boolean)
+
+    # Audit
+    built_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
