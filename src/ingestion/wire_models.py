@@ -157,3 +157,154 @@ class ScheduleResponse(BaseModel):
     def iter_games(self):
         for d in self.dates:
             yield from d.games
+
+
+# -------- Schedule with probable pitchers --------
+
+
+class ProbablePitcherRef(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    id: int | None = None
+    full_name: str | None = Field(default=None, alias="fullName")
+
+
+class ScheduleTeamSideWithProbable(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    team: TeamVenueRef | None = None
+    probable_pitcher: ProbablePitcherRef | None = Field(default=None, alias="probablePitcher")
+
+
+class ScheduleTeamsWithProbables(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    home: ScheduleTeamSideWithProbable | None = None
+    away: ScheduleTeamSideWithProbable | None = None
+
+
+class ScheduleGameWithProbables(BaseModel):
+    """Schedule entry hydrated with probablePitcher + linescore."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    game_pk: int = Field(alias="gamePk")
+    game_date: datetime = Field(alias="gameDate")
+    official_date: date | None = Field(default=None, alias="officialDate")
+    game_type: str | None = Field(default=None, alias="gameType")
+    season: str | None = None
+    status: ScheduleStatus | None = None
+    teams: ScheduleTeamsWithProbables | None = None
+    venue: TeamVenueRef | None = None
+    day_night: str | None = Field(default=None, alias="dayNight")
+
+    @property
+    def home_team_id(self) -> int | None:
+        return (
+            self.teams.home.team.id
+            if (self.teams and self.teams.home and self.teams.home.team)
+            else None
+        )
+
+    @property
+    def away_team_id(self) -> int | None:
+        return (
+            self.teams.away.team.id
+            if (self.teams and self.teams.away and self.teams.away.team)
+            else None
+        )
+
+    @property
+    def venue_id(self) -> int | None:
+        return self.venue.id if self.venue else None
+
+    @property
+    def home_probable_pitcher_id(self) -> int | None:
+        side = self.teams.home if self.teams else None
+        if side is None or side.probable_pitcher is None:
+            return None
+        return side.probable_pitcher.id
+
+    @property
+    def away_probable_pitcher_id(self) -> int | None:
+        side = self.teams.away if self.teams else None
+        if side is None or side.probable_pitcher is None:
+            return None
+        return side.probable_pitcher.id
+
+
+class ScheduleWithProbablesResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    dates: list[dict] = Field(default_factory=list)
+
+    def iter_games(self):
+        for d in self.dates:
+            for raw_game in d.get("games", []):
+                yield ScheduleGameWithProbables.model_validate(raw_game)
+
+
+class ProbablePitchers(BaseModel):
+    """Convenience tuple: (home_id, away_id) for a single game."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    home_pitcher_id: int | None = None
+    away_pitcher_id: int | None = None
+
+
+# -------- Boxscore (lineups) --------
+
+
+class BoxscoreTeamRef(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: int | None = None
+
+
+class BoxscoreTeamSide(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    team: BoxscoreTeamRef = Field(default_factory=BoxscoreTeamRef)
+    batting_order: list[int] = Field(default_factory=list, alias="battingOrder")
+
+
+class BoxscoreTeams(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    home: BoxscoreTeamSide = Field(default_factory=BoxscoreTeamSide)
+    away: BoxscoreTeamSide = Field(default_factory=BoxscoreTeamSide)
+
+
+class BoxscoreResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    teams: BoxscoreTeams = Field(default_factory=BoxscoreTeams)
+
+
+# -------- Open-Meteo forecast --------
+
+
+class OpenMeteoHourly(BaseModel):
+    """Parallel arrays keyed by hour; length matches `time`."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    time: list[str] = Field(default_factory=list)
+    temperature_2m: list[float] = Field(default_factory=list)
+    apparent_temperature: list[float] = Field(default_factory=list)
+    relative_humidity_2m: list[float] = Field(default_factory=list)
+    surface_pressure: list[float] = Field(default_factory=list)
+    wind_speed_10m: list[float] = Field(default_factory=list)
+    wind_direction_10m: list[float] = Field(default_factory=list)
+    precipitation_probability: list[float] = Field(default_factory=list)
+    cloud_cover: list[float] = Field(default_factory=list)
+
+
+class OpenMeteoForecastResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    latitude: float
+    longitude: float
+    timezone: str | None = None
+    hourly: OpenMeteoHourly = Field(default_factory=OpenMeteoHourly)
