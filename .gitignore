@@ -56,6 +56,15 @@ coverage.xml
 models/artifacts/
 data/cache/
 
+# Ingestion (generated / transient)
+reports/
+.backfill_logs/
+
+# pybaseball / requests-cache
+pybaseball_cache/
+.requests_cache/
+http_cache.sqlite*
+
 # IDE
 .vscode/
 .idea/

@@ -1,0 +1,388 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+    method: GET
+    uri: https://statsapi.mlb.com/api/v1/venues?sportId=1&season=2024&hydrate=location
+  response:
+    body:
+      string: '{"copyright":"Copyright 2026 MLB Advanced Media, L.P.  Use of any content
+        on this page acknowledges agreement to the terms posted here http://gdx.mlb.com/components/copyright.txt","venues":[{"id":3329,"name":"Arvest
+        Ballpark","link":"/api/v1/venues/3329","location":{"address1":"3000 S. 56th
+        Street","city":"Springdale","state":"Arkansas","stateAbbrev":"AR","postalCode":"72762","defaultCoordinates":{"latitude":36.15968,"longitude":-94.194624},"country":"USA"},"active":true,"season":"2024"},{"id":1,"name":"Angel
+        Stadium","link":"/api/v1/venues/1","location":{"address1":"2000 Gene Autry
+        Way","city":"Anaheim","state":"California","stateAbbrev":"CA","postalCode":"92806","defaultCoordinates":{"latitude":33.80019044,"longitude":-117.8823996},"azimuthAngle":43.61,"elevation":151,"country":"USA","phone":"(714)
+        940-2000"},"active":true,"season":"2024"},{"id":2,"name":"Oriole Park at Camden
+        Yards","link":"/api/v1/venues/2","location":{"address1":"333 West Camden Street","city":"Baltimore","state":"Maryland","stateAbbrev":"MD","postalCode":"21201","defaultCoordinates":{"latitude":39.283787,"longitude":-76.621689},"azimuthAngle":31.0,"elevation":33,"country":"USA","phone":"(410)
+        685-9800"},"active":true,"season":"2024"},{"id":3,"name":"Fenway Park","link":"/api/v1/venues/3","location":{"address1":"4
+        Yawkey Way","city":"Boston","state":"Massachusetts","stateAbbrev":"MA","postalCode":"02215","defaultCoordinates":{"latitude":42.346456,"longitude":-71.097441},"azimuthAngle":45.0,"elevation":21,"country":"USA","phone":"(617)
+        267-9440"},"active":true,"season":"2024"},{"id":4,"name":"Guaranteed Rate
+        Field","link":"/api/v1/venues/4","location":{"address1":"333 West 35th Street","city":"Chicago","state":"Illinois","stateAbbrev":"IL","postalCode":"60616","defaultCoordinates":{"latitude":41.83,"longitude":-87.634167},"azimuthAngle":127.0,"elevation":595,"country":"USA","phone":"(312)
+        674-1000"},"active":true,"season":"2024"},{"id":5380,"name":"CoolToday Park","link":"/api/v1/venues/5380","location":{"address1":"18800
+        S. West Villages Pkwy","city":"North Port","state":"Florida","stateAbbrev":"FL","postalCode":"34293","defaultCoordinates":{"latitude":27.04422,"longitude":-82.23593},"country":"USA"},"active":true,"season":"2024"},{"id":5,"name":"Progressive
+        Field","link":"/api/v1/venues/5","location":{"address1":"2401 Ontario Street","city":"Cleveland","state":"Ohio","stateAbbrev":"OH","postalCode":"44115","defaultCoordinates":{"latitude":41.495861,"longitude":-81.685255},"azimuthAngle":0.0,"elevation":653,"country":"USA","phone":"(216)
+        420-4200"},"active":true,"season":"2024"},{"id":5381,"name":"London Stadium","link":"/api/v1/venues/5381","location":{"address1":"Queen
+        Elizabeth Olympic Park","city":"London","postalCode":"E20 2ST","defaultCoordinates":{"latitude":51.50853,"longitude":-0.12574},"country":"United
+        Kingdom","phone":"44 0208 522 6001"},"active":true,"season":"2024"},{"id":7,"name":"Kauffman
+        Stadium","link":"/api/v1/venues/7","location":{"address1":"One Royal Way","city":"Kansas
+        City","state":"Missouri","stateAbbrev":"MO","postalCode":"64129","defaultCoordinates":{"latitude":39.051567,"longitude":-94.480483},"azimuthAngle":46.0,"elevation":856,"country":"USA","phone":"(816)
+        921-8000"},"active":true,"season":"2024"},{"id":5000,"name":"CACTI Park of
+        the Palm Beaches","link":"/api/v1/venues/5000","location":{"address1":"5444
+        Haverhill Road","city":"West Palm Beach","state":"Florida","stateAbbrev":"FL","postalCode":"33407","defaultCoordinates":{"latitude":26.75475,"longitude":-80.11316},"country":"USA","phone":"(561)
+        500-4487"},"active":true,"season":"2024"},{"id":10,"name":"Oakland Coliseum","link":"/api/v1/venues/10","location":{"address1":"7000
+        Coliseum Way","city":"Oakland","state":"California","stateAbbrev":"CA","postalCode":"94621","defaultCoordinates":{"latitude":37.751511,"longitude":-122.200698},"azimuthAngle":55.0,"elevation":10,"country":"USA","phone":"(510)
+        638-4900"},"active":true,"season":"2024"},{"id":2700,"name":"BayCare Ballpark","link":"/api/v1/venues/2700","location":{"address1":"601
+        N. Old Coachman Road","city":"Clearwater","state":"Florida","stateAbbrev":"FL","postalCode":"33765","defaultCoordinates":{"latitude":27.97159,"longitude":-82.731714},"country":"USA"},"active":true,"season":"2024"},{"id":12,"name":"Tropicana
+        Field","link":"/api/v1/venues/12","location":{"address1":"One Tropicana Drive","city":"St.
+        Petersburg","state":"Florida","stateAbbrev":"FL","postalCode":"33705","defaultCoordinates":{"latitude":27.767778,"longitude":-82.6525},"azimuthAngle":359.0,"elevation":15,"country":"USA","phone":"(727)
+        825-3137"},"active":true,"season":"2024"},{"id":14,"name":"Rogers Centre","link":"/api/v1/venues/14","location":{"address1":"1
+        Blue Jays Way, Suite 3200","city":"Toronto","state":"Ontario","stateAbbrev":"ON","postalCode":"M5V1J1","defaultCoordinates":{"latitude":43.64155,"longitude":-79.38915},"azimuthAngle":345.0,"elevation":270,"country":"Canada","phone":"(416)
+        341-1000"},"active":true,"season":"2024"},{"id":15,"name":"Chase Field","link":"/api/v1/venues/15","location":{"address1":"401
+        East Jefferson Street","city":"Phoenix","state":"Arizona","stateAbbrev":"AZ","postalCode":"85004","defaultCoordinates":{"latitude":33.445302,"longitude":-112.066687},"azimuthAngle":0.0,"elevation":1086,"country":"USA","phone":"(602)
+        462-6500"},"active":true,"season":"2024"},{"id":17,"name":"Wrigley Field","link":"/api/v1/venues/17","location":{"address1":"1060
+        West Addison","city":"Chicago","state":"Illinois","stateAbbrev":"IL","postalCode":"60613-4397","defaultCoordinates":{"latitude":41.948171,"longitude":-87.655503},"azimuthAngle":37.0,"elevation":595,"country":"USA","phone":"(773)
+        404-2827"},"active":true,"season":"2024"},{"id":19,"name":"Coors Field","link":"/api/v1/venues/19","location":{"address1":"2001
+        Blake Street","city":"Denver","state":"Colorado","stateAbbrev":"CO","postalCode":"80205-2000","defaultCoordinates":{"latitude":39.756042,"longitude":-104.994136},"azimuthAngle":4.0,"elevation":5190,"country":"USA","phone":"(303)
+        292-0200"},"active":true,"season":"2024"},{"id":4629,"name":"Sloan Park","link":"/api/v1/venues/4629","location":{"address1":"2330
+        West Rio Salado Parkway","city":"Mesa","state":"Arizona","stateAbbrev":"AZ","postalCode":"85201","defaultCoordinates":{"latitude":33.43081,"longitude":-111.882},"country":"USA"},"active":true,"season":"2024"},{"id":22,"name":"Dodger
+        Stadium","link":"/api/v1/venues/22","location":{"address1":"1000 Vin Scully
+        Avenue","city":"Los Angeles","state":"California","stateAbbrev":"CA","postalCode":"90012-1199","defaultCoordinates":{"latitude":34.07368,"longitude":-118.24053},"azimuthAngle":26.0,"elevation":515,"country":"USA","phone":"(323)
+        224-1500"},"active":true,"season":"2024"},{"id":4249,"name":"Salt River Fields
+        at Talking Stick","link":"/api/v1/venues/4249","location":{"address1":"Salt
+        River Fields at Talking Stick","address2":"7555 N. Pima Road","city":"Scottsdale","state":"Arizona","stateAbbrev":"AZ","postalCode":"85256","defaultCoordinates":{"latitude":33.54523,"longitude":-111.88552},"azimuthAngle":72.0,"elevation":1298,"country":"USA","phone":"(602)
+        462-6561"},"active":true,"season":"2024"},{"id":5150,"name":"Gocheok Sky Dome","link":"/api/v1/venues/5150","location":{"address1":"63-6
+        Gocheok-dong","city":"Seoul","defaultCoordinates":{"latitude":37.4982,"longitude":126.867},"country":"Republic
+        of Korea"},"active":true,"season":"2024"},{"id":31,"name":"PNC Park","link":"/api/v1/venues/31","location":{"address1":"115
+        Federal Street","city":"Pittsburgh","state":"Pennsylvania","stateAbbrev":"PA","postalCode":"15212","defaultCoordinates":{"latitude":40.446904,"longitude":-80.005753},"azimuthAngle":116.0,"elevation":780,"country":"USA","phone":"(412)
+        323-5000"},"active":true,"season":"2024"},{"id":32,"name":"American Family
+        Field","link":"/api/v1/venues/32","location":{"address1":"One Brewers Way","city":"Milwaukee","state":"Wisconsin","stateAbbrev":"WI","postalCode":"53214","defaultCoordinates":{"latitude":43.02838,"longitude":-87.97099},"azimuthAngle":129.0,"elevation":597,"country":"USA","phone":"(414)
+        902-4400"},"active":true,"season":"2024"},{"id":2856,"name":"Clover Park","link":"/api/v1/venues/2856","location":{"address1":"31
+        Piazza Drive","city":"Port St. Lucie","state":"Florida","stateAbbrev":"FL","postalCode":"34986","defaultCoordinates":{"latitude":27.3249268,"longitude":-80.4068854},"country":"USA"},"active":true,"season":"2024"},{"id":680,"name":"T-Mobile
+        Park","link":"/api/v1/venues/680","location":{"address1":"P.O. Box 4100","city":"Seattle","state":"Washington","stateAbbrev":"WA","postalCode":"98104","defaultCoordinates":{"latitude":47.591333,"longitude":-122.33251},"azimuthAngle":49.0,"elevation":10,"country":"USA","phone":"(206)
+        346-4000"},"active":true,"season":"2024"},{"id":2602,"name":"Great American
+        Ball Park","link":"/api/v1/venues/2602","location":{"address1":"100 Main Street","city":"Cincinnati","state":"Ohio","stateAbbrev":"OH","postalCode":"45202-4109","defaultCoordinates":{"latitude":39.097389,"longitude":-84.506611},"azimuthAngle":122.0,"elevation":535,"country":"USA","phone":"(513)
+        765-7000"},"active":true,"season":"2024"},{"id":2603,"name":"Surprise Stadium","link":"/api/v1/venues/2603","location":{"address1":"Surprise
+        Stadium","address2":"15960 N Bullard Avenue","city":"Surprise","state":"Arizona","stateAbbrev":"AZ","postalCode":"85374","defaultCoordinates":{"latitude":33.62762,"longitude":-112.37849},"country":"USA","phone":"(623)
+        222-2222"},"active":true,"season":"2024"},{"id":2862,"name":"Lee Health Sports
+        Complex","link":"/api/v1/venues/2862","location":{"address1":"14400 Six Mile
+        Cypress Pkwy.","city":"Fort Myers","state":"Florida","stateAbbrev":"FL","postalCode":"33912","defaultCoordinates":{"latitude":26.537803,"longitude":-81.841973},"country":"USA"},"active":true,"season":"2024"},{"id":2735,"name":"Journey
+        Bank Ballpark","link":"/api/v1/venues/2735","location":{"address1":"1700 W.
+        4th Street","city":"Williamsport","state":"Pennsylvania","stateAbbrev":"PA","postalCode":"17701","defaultCoordinates":{"latitude":41.2419845,"longitude":-77.0475104},"country":"USA"},"active":true,"season":"2024"},{"id":2500,"name":"Tempe
+        Diablo Stadium","link":"/api/v1/venues/2500","location":{"address1":"Tempe
+        Diablo Stadium","address2":"2200 W  Alameda Drive #105","city":"Tempe","state":"Arizona","stateAbbrev":"AZ","postalCode":"85282","defaultCoordinates":{"latitude":33.40092,"longitude":-111.9707},"country":"USA","phone":"(480)
+        350-5205"},"active":true,"season":"2024"},{"id":4169,"name":"loanDepot park","link":"/api/v1/venues/4169","location":{"address1":"501
+        Marlins Way","city":"Miami","state":"Florida","stateAbbrev":"FL","postalCode":"33125","defaultCoordinates":{"latitude":25.77796236,"longitude":-80.21951795},"azimuthAngle":128.0,"elevation":10,"country":"USA"},"active":true,"season":"2024"},{"id":2889,"name":"Busch
+        Stadium","link":"/api/v1/venues/2889","location":{"address1":"700 Clark Street","city":"St.
+        Louis","state":"Missouri","stateAbbrev":"MO","postalCode":"63102","defaultCoordinates":{"latitude":38.62256667,"longitude":-90.19286667},"azimuthAngle":62.0,"elevation":460,"country":"USA","phone":"(314)
+        345-9600"},"active":true,"season":"2024"},{"id":2507,"name":"Hohokam Stadium","link":"/api/v1/venues/2507","location":{"address1":"HoHoKam
+        Park","address2":"1235 N. Center Street","city":"Mesa","state":"Arizona","stateAbbrev":"AZ","postalCode":"85201","defaultCoordinates":{"latitude":33.43831,"longitude":-111.82973},"country":"USA","phone":"(480)
+        964-4467"},"active":true,"season":"2024"},{"id":2508,"name":"Ed Smith Stadium","link":"/api/v1/venues/2508","location":{"address1":"Ed
+        Smith Stadium","address2":"12th Street and Tuttle Avenue","city":"Sarasota","state":"Florida","stateAbbrev":"FL","postalCode":"34237","defaultCoordinates":{"latitude":27.34795,"longitude":-82.5174},"country":"USA","phone":"(941)
+        747-3031"},"active":true,"season":"2024"},{"id":5325,"name":"Globe Life Field","link":"/api/v1/venues/5325","location":{"address1":"734
+        Stadium Drive","city":"Arlington","state":"Texas","stateAbbrev":"TX","postalCode":"76011","defaultCoordinates":{"latitude":32.747299,"longitude":-97.081818},"azimuthAngle":30.0,"elevation":545,"country":"USA","phone":"(817)
+        533-1972"},"active":true,"season":"2024"},{"id":2511,"name":"Publix Field
+        at Joker Marchant Stadium","link":"/api/v1/venues/2511","location":{"address1":"2301
+        Lakeland Hills Blvd.","city":"Lakeland","state":"Florida","stateAbbrev":"FL","postalCode":"33805","defaultCoordinates":{"latitude":28.074822,"longitude":-81.9508415},"country":"USA"},"active":true,"season":"2024"},{"id":4309,"name":"JetBlue
+        Park","link":"/api/v1/venues/4309","location":{"address1":"11500 Daniels Parkway","city":"Ft.
+        Myers","state":"Florida","stateAbbrev":"FL","postalCode":"33913","defaultCoordinates":{"latitude":26.55092,"longitude":-81.76225},"country":"USA"},"active":true,"season":"2024"},{"id":2518,"name":"American
+        Family Fields of Phoenix","link":"/api/v1/venues/2518","location":{"address1":"Maryvale
+        Baseball Park","address2":"3600 N 51st Avenue","city":"Phoenix","state":"Arizona","stateAbbrev":"AZ","postalCode":"85031","defaultCoordinates":{"latitude":33.49202,"longitude":-112.1727},"country":"USA","phone":"(623)
+        245-5500"},"active":true,"season":"2024"},{"id":2392,"name":"Minute Maid Park","link":"/api/v1/venues/2392","location":{"address1":"501
+        Crawford Street","city":"Houston","state":"Texas","stateAbbrev":"TX","postalCode":"77002","defaultCoordinates":{"latitude":29.756967,"longitude":-95.355509},"azimuthAngle":343.0,"elevation":45,"country":"USA","phone":"(713)
+        259-8000"},"active":true,"season":"2024"},{"id":2520,"name":"Roger Dean Chevrolet
+        Stadium","link":"/api/v1/venues/2520","location":{"address1":"4751 Main Street","city":"Jupiter","state":"Florida","stateAbbrev":"FL","postalCode":"33458","defaultCoordinates":{"latitude":26.890957,"longitude":-80.116365},"country":"USA"},"active":true,"season":"2024"},{"id":3289,"name":"Citi
+        Field","link":"/api/v1/venues/3289","location":{"address1":"Citi Field","city":"Flushing","state":"New
+        York","stateAbbrev":"NY","postalCode":"11368","defaultCoordinates":{"latitude":40.75753012,"longitude":-73.84559155},"azimuthAngle":13.0,"elevation":10,"country":"USA","phone":"(718)
+        507-6387"},"active":true,"season":"2024"},{"id":2394,"name":"Comerica Park","link":"/api/v1/venues/2394","location":{"address1":"2100
+        Woodward Avenue","city":"Detroit","state":"Michigan","stateAbbrev":"MI","postalCode":"48201","defaultCoordinates":{"latitude":42.3391151,"longitude":-83.048695},"azimuthAngle":150.0,"elevation":600,"country":"USA","phone":"(313)
+        471-2000"},"active":true,"season":"2024"},{"id":2395,"name":"Oracle Park","link":"/api/v1/venues/2395","location":{"address1":"24
+        Willie Mays Plaza","city":"San Francisco","state":"California","stateAbbrev":"CA","postalCode":"94107","defaultCoordinates":{"latitude":37.778383,"longitude":-122.389448},"azimuthAngle":85.0,"elevation":0,"country":"USA","phone":"(415)
+        972-2000"},"active":true,"season":"2024"},{"id":2523,"name":"George M. Steinbrenner
+        Field","link":"/api/v1/venues/2523","location":{"address1":"1 Steinbrenner
+        Drive","city":"Tampa","state":"Florida","stateAbbrev":"FL","postalCode":"33614","defaultCoordinates":{"latitude":27.97997,"longitude":-82.50702},"azimuthAngle":60.0,"elevation":34,"country":"USA"},"active":true,"season":"2024"},{"id":5340,"name":"Estadio
+        Alfredo Harp Helu","link":"/api/v1/venues/5340","location":{"city":"Mexico
+        City","country":"Mexico"},"active":true,"season":"2024"},{"id":2526,"name":"LECOM
+        Park","link":"/api/v1/venues/2526","location":{"address1":"1611 9th Street
+        W.","city":"Bradenton","state":"Florida","stateAbbrev":"FL","postalCode":"34205","defaultCoordinates":{"latitude":27.48553,"longitude":-82.57038},"country":"USA"},"active":true,"season":"2024"},{"id":3809,"name":"Camelback
+        Ranch","link":"/api/v1/venues/3809","location":{"address1":"Camelback Ranch","address2":"10710
+        W. Camelback Ranch","city":"Glendale","state":"Arizona","stateAbbrev":"AZ","postalCode":"85037","defaultCoordinates":{"latitude":33.51434,"longitude":-112.29612},"country":"USA","phone":"(623)
+        842-6000"},"active":true,"season":"2024"},{"id":4705,"name":"Truist Park","link":"/api/v1/venues/4705","location":{"address1":"755
+        Battery Avenue","city":"Atlanta","state":"Georgia","stateAbbrev":"GA","postalCode":"30339","defaultCoordinates":{"latitude":33.890672,"longitude":-84.467641},"azimuthAngle":145.0,"elevation":1001,"country":"USA"},"active":true,"season":"2024"},{"id":2529,"name":"Sutter
+        Health Park","link":"/api/v1/venues/2529","location":{"address1":"400 Ballpark
+        Drive","city":"Sacramento","state":"California","stateAbbrev":"CA","postalCode":"95691","defaultCoordinates":{"latitude":38.57994,"longitude":-121.51246},"azimuthAngle":46.0,"elevation":24,"country":"USA","phone":"916-371-HITS"},"active":true,"season":"2024"},{"id":2530,"name":"Peoria
+        Stadium","link":"/api/v1/venues/2530","location":{"address1":"Peoria Sports
+        Complex","address2":"16101 N 83rd Avenue","city":"Peoria","state":"Arizona","stateAbbrev":"AZ","postalCode":"85382","defaultCoordinates":{"latitude":33.63187,"longitude":-112.23359},"country":"USA","phone":"(623)
+        878-4337"},"active":true,"season":"2024"},{"id":2532,"name":"Scottsdale Stadium","link":"/api/v1/venues/2532","location":{"address1":"Scottsdale
+        Stadium","address2":"7408 East Osborn Road","city":"Scottsdale","state":"Arizona","stateAbbrev":"AZ","postalCode":"85251","defaultCoordinates":{"latitude":33.48869,"longitude":-111.92099},"country":"USA","phone":"(480)
+        312-2586"},"active":true,"season":"2024"},{"id":2534,"name":"Charlotte Sports
+        Park","link":"/api/v1/venues/2534","location":{"address1":"2300 El Jobean
+        Rd.","city":"Port Charlotte","state":"Florida","stateAbbrev":"FL","postalCode":"33948","defaultCoordinates":{"latitude":26.99888,"longitude":-82.18212},"country":"USA"},"active":true,"season":"2024"},{"id":2536,"name":"TD
+        Ballpark","link":"/api/v1/venues/2536","location":{"address1":"373 Douglas
+        Avenue","city":"Dunedin","state":"Florida","stateAbbrev":"FL","postalCode":"34698","defaultCoordinates":{"latitude":27.9745812,"longitude":-82.7913301},"azimuthAngle":138.0,"elevation":19,"country":"USA"},"active":true,"season":"2024"},{"id":3049,"name":"Estadio
+        Quisqueya Juan Marichal","link":"/api/v1/venues/3049","location":{"address1":"3456
+        Ave Tiradentes, Ens. La Fe","city":"Santo Domingo","country":"Dominican Republic"},"active":true,"season":"2024"},{"id":5355,"name":"Las
+        Vegas Ballpark","link":"/api/v1/venues/5355","location":{"address1":"1650
+        South Pavilion Center Drive","city":"Las Vegas","state":"Nevada","stateAbbrev":"NV","postalCode":"89135","defaultCoordinates":{"latitude":36.152607,"longitude":-115.329888},"country":"USA"},"active":true,"season":"2024"},{"id":3309,"name":"Nationals
+        Park","link":"/api/v1/venues/3309","location":{"address1":"1500 South Capitol
+        Street, SE","city":"Washington","state":"District of Columbia","stateAbbrev":"DC","postalCode":"20003-1507","defaultCoordinates":{"latitude":38.872861,"longitude":-77.007501},"azimuthAngle":28.0,"elevation":35,"country":"USA","phone":"(202)
+        349-0400"},"active":true,"season":"2024"},{"id":3949,"name":"Rickwood Field","link":"/api/v1/venues/3949","location":{"address1":"1137
+        2nd Avenue West","city":"Birmingham","state":"Alabama","stateAbbrev":"AL","postalCode":"35204","defaultCoordinates":{"latitude":33.5023303,"longitude":-86.8563555},"country":"USA"},"active":true,"season":"2024"},{"id":3312,"name":"Target
+        Field","link":"/api/v1/venues/3312","location":{"address1":"1 Twins Way","city":"Minneapolis","state":"Minnesota","stateAbbrev":"MN","postalCode":"55403","defaultCoordinates":{"latitude":44.981829,"longitude":-93.277891},"azimuthAngle":129.0,"elevation":828,"country":"USA","phone":"(612)
+        659-3400"},"active":true,"season":"2024"},{"id":3313,"name":"Yankee Stadium","link":"/api/v1/venues/3313","location":{"address1":"One
+        East 161st Street","city":"Bronx","state":"New York","stateAbbrev":"NY","postalCode":"10451","defaultCoordinates":{"latitude":40.82919482,"longitude":-73.9264977},"azimuthAngle":75.0,"elevation":55,"country":"USA","phone":"(718)
+        293-4300"},"active":true,"season":"2024"},{"id":2680,"name":"Petco Park","link":"/api/v1/venues/2680","location":{"address1":"100
+        Park Boulevard","city":"San Diego","state":"California","stateAbbrev":"CA","postalCode":"92101","defaultCoordinates":{"latitude":32.707861,"longitude":-117.157278},"azimuthAngle":0.0,"elevation":23,"country":"USA","phone":"(619)
+        795-5000"},"active":true,"season":"2024"},{"id":2681,"name":"Citizens Bank
+        Park","link":"/api/v1/venues/2681","location":{"address1":"One Citizens Bank
+        Way","city":"Philadelphia","state":"Pennsylvania","stateAbbrev":"PA","postalCode":"19148","defaultCoordinates":{"latitude":39.90539086,"longitude":-75.16716957},"azimuthAngle":9.0,"elevation":20,"country":"USA","phone":"(215)
+        463-6000"},"active":true,"season":"2024"},{"id":3834,"name":"Goodyear Ballpark","link":"/api/v1/venues/3834","location":{"address1":"Goodyear
+        Ballpark","address2":"1933 S Ballpark Way","city":"Goodyear","state":"Arizona","stateAbbrev":"AZ","postalCode":"85338","defaultCoordinates":{"latitude":33.42892,"longitude":-112.39027},"country":"USA","phone":"(623)
+        882-3120"},"active":true,"season":"2024"}]}'
+    headers:
+      Accept-Ranges:
+      - bytes
+      Access-Control-Allow-Credentials:
+      - 'true'
+      Access-Control-Allow-Headers:
+      - Content-Type,X-Requested-With,accept,Origin,Access-Control-Request-Method,Access-Control-Request-Headers,Authorization
+      Access-Control-Allow-Methods:
+      - GET, POST, PUT, DELETE, OPTIONS
+      Access-Control-Allow-Origin:
+      - '*'
+      Access-Control-Expose-Headers:
+      - Content-Type,X-Requested-With,accept,Origin,Access-Control-Request-Method,Access-Control-Request-Headers,Authorization
+      Age:
+      - '0'
+      Cache-Control:
+      - max-age=600, public, stale-while-revalidate=30, stale-if-error=86400
+      Connection:
+      - keep-alive
+      Content-Encoding:
+      - gzip
+      Content-Length:
+      - '4814'
+      Content-Type:
+      - application/json;charset=UTF-8
+      Date:
+      - Wed, 22 Apr 2026 16:28:57 GMT
+      Vary:
+      - accept-encoding, Accept-Encoding
+      Via:
+      - 1.1 google, 1.1 varnish, 1.1 varnish
+      X-Cache:
+      - MISS, MISS
+      X-Cache-Hits:
+      - 0, 0
+      X-Content-Type-Options:
+      - nosniff
+      X-Frame-Options:
+      - DENY
+      X-Served-By:
+      - cache-iad-kjyo7100174-IAD, cache-mia-kmia1760060-MIA
+      X-Timer:
+      - S1776875338.587294,VS0,VE42
+      X-XSS-Protection:
+      - '0'
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+    method: GET
+    uri: https://statsapi.mlb.com/api/v1/venues?sportId=1&season=2024&hydrate=location
+  response:
+    body:
+      string: '{"copyright":"Copyright 2026 MLB Advanced Media, L.P.  Use of any content
+        on this page acknowledges agreement to the terms posted here http://gdx.mlb.com/components/copyright.txt","venues":[{"id":3329,"name":"Arvest
+        Ballpark","link":"/api/v1/venues/3329","location":{"address1":"3000 S. 56th
+        Street","city":"Springdale","state":"Arkansas","stateAbbrev":"AR","postalCode":"72762","defaultCoordinates":{"latitude":36.15968,"longitude":-94.194624},"country":"USA"},"active":true,"season":"2024"},{"id":1,"name":"Angel
+        Stadium","link":"/api/v1/venues/1","location":{"address1":"2000 Gene Autry
+        Way","city":"Anaheim","state":"California","stateAbbrev":"CA","postalCode":"92806","defaultCoordinates":{"latitude":33.80019044,"longitude":-117.8823996},"azimuthAngle":43.61,"elevation":151,"country":"USA","phone":"(714)
+        940-2000"},"active":true,"season":"2024"},{"id":2,"name":"Oriole Park at Camden
+        Yards","link":"/api/v1/venues/2","location":{"address1":"333 West Camden Street","city":"Baltimore","state":"Maryland","stateAbbrev":"MD","postalCode":"21201","defaultCoordinates":{"latitude":39.283787,"longitude":-76.621689},"azimuthAngle":31.0,"elevation":33,"country":"USA","phone":"(410)
+        685-9800"},"active":true,"season":"2024"},{"id":3,"name":"Fenway Park","link":"/api/v1/venues/3","location":{"address1":"4
+        Yawkey Way","city":"Boston","state":"Massachusetts","stateAbbrev":"MA","postalCode":"02215","defaultCoordinates":{"latitude":42.346456,"longitude":-71.097441},"azimuthAngle":45.0,"elevation":21,"country":"USA","phone":"(617)
+        267-9440"},"active":true,"season":"2024"},{"id":4,"name":"Guaranteed Rate
+        Field","link":"/api/v1/venues/4","location":{"address1":"333 West 35th Street","city":"Chicago","state":"Illinois","stateAbbrev":"IL","postalCode":"60616","defaultCoordinates":{"latitude":41.83,"longitude":-87.634167},"azimuthAngle":127.0,"elevation":595,"country":"USA","phone":"(312)
+        674-1000"},"active":true,"season":"2024"},{"id":5380,"name":"CoolToday Park","link":"/api/v1/venues/5380","location":{"address1":"18800
+        S. West Villages Pkwy","city":"North Port","state":"Florida","stateAbbrev":"FL","postalCode":"34293","defaultCoordinates":{"latitude":27.04422,"longitude":-82.23593},"country":"USA"},"active":true,"season":"2024"},{"id":5,"name":"Progressive
+        Field","link":"/api/v1/venues/5","location":{"address1":"2401 Ontario Street","city":"Cleveland","state":"Ohio","stateAbbrev":"OH","postalCode":"44115","defaultCoordinates":{"latitude":41.495861,"longitude":-81.685255},"azimuthAngle":0.0,"elevation":653,"country":"USA","phone":"(216)
+        420-4200"},"active":true,"season":"2024"},{"id":5381,"name":"London Stadium","link":"/api/v1/venues/5381","location":{"address1":"Queen
+        Elizabeth Olympic Park","city":"London","postalCode":"E20 2ST","defaultCoordinates":{"latitude":51.50853,"longitude":-0.12574},"country":"United
+        Kingdom","phone":"44 0208 522 6001"},"active":true,"season":"2024"},{"id":7,"name":"Kauffman
+        Stadium","link":"/api/v1/venues/7","location":{"address1":"One Royal Way","city":"Kansas
+        City","state":"Missouri","stateAbbrev":"MO","postalCode":"64129","defaultCoordinates":{"latitude":39.051567,"longitude":-94.480483},"azimuthAngle":46.0,"elevation":856,"country":"USA","phone":"(816)
+        921-8000"},"active":true,"season":"2024"},{"id":5000,"name":"CACTI Park of
+        the Palm Beaches","link":"/api/v1/venues/5000","location":{"address1":"5444
+        Haverhill Road","city":"West Palm Beach","state":"Florida","stateAbbrev":"FL","postalCode":"33407","defaultCoordinates":{"latitude":26.75475,"longitude":-80.11316},"country":"USA","phone":"(561)
+        500-4487"},"active":true,"season":"2024"},{"id":10,"name":"Oakland Coliseum","link":"/api/v1/venues/10","location":{"address1":"7000
+        Coliseum Way","city":"Oakland","state":"California","stateAbbrev":"CA","postalCode":"94621","defaultCoordinates":{"latitude":37.751511,"longitude":-122.200698},"azimuthAngle":55.0,"elevation":10,"country":"USA","phone":"(510)
+        638-4900"},"active":true,"season":"2024"},{"id":2700,"name":"BayCare Ballpark","link":"/api/v1/venues/2700","location":{"address1":"601
+        N. Old Coachman Road","city":"Clearwater","state":"Florida","stateAbbrev":"FL","postalCode":"33765","defaultCoordinates":{"latitude":27.97159,"longitude":-82.731714},"country":"USA"},"active":true,"season":"2024"},{"id":12,"name":"Tropicana
+        Field","link":"/api/v1/venues/12","location":{"address1":"One Tropicana Drive","city":"St.
+        Petersburg","state":"Florida","stateAbbrev":"FL","postalCode":"33705","defaultCoordinates":{"latitude":27.767778,"longitude":-82.6525},"azimuthAngle":359.0,"elevation":15,"country":"USA","phone":"(727)
+        825-3137"},"active":true,"season":"2024"},{"id":14,"name":"Rogers Centre","link":"/api/v1/venues/14","location":{"address1":"1
+        Blue Jays Way, Suite 3200","city":"Toronto","state":"Ontario","stateAbbrev":"ON","postalCode":"M5V1J1","defaultCoordinates":{"latitude":43.64155,"longitude":-79.38915},"azimuthAngle":345.0,"elevation":270,"country":"Canada","phone":"(416)
+        341-1000"},"active":true,"season":"2024"},{"id":15,"name":"Chase Field","link":"/api/v1/venues/15","location":{"address1":"401
+        East Jefferson Street","city":"Phoenix","state":"Arizona","stateAbbrev":"AZ","postalCode":"85004","defaultCoordinates":{"latitude":33.445302,"longitude":-112.066687},"azimuthAngle":0.0,"elevation":1086,"country":"USA","phone":"(602)
+        462-6500"},"active":true,"season":"2024"},{"id":17,"name":"Wrigley Field","link":"/api/v1/venues/17","location":{"address1":"1060
+        West Addison","city":"Chicago","state":"Illinois","stateAbbrev":"IL","postalCode":"60613-4397","defaultCoordinates":{"latitude":41.948171,"longitude":-87.655503},"azimuthAngle":37.0,"elevation":595,"country":"USA","phone":"(773)
+        404-2827"},"active":true,"season":"2024"},{"id":19,"name":"Coors Field","link":"/api/v1/venues/19","location":{"address1":"2001
+        Blake Street","city":"Denver","state":"Colorado","stateAbbrev":"CO","postalCode":"80205-2000","defaultCoordinates":{"latitude":39.756042,"longitude":-104.994136},"azimuthAngle":4.0,"elevation":5190,"country":"USA","phone":"(303)
+        292-0200"},"active":true,"season":"2024"},{"id":4629,"name":"Sloan Park","link":"/api/v1/venues/4629","location":{"address1":"2330
+        West Rio Salado Parkway","city":"Mesa","state":"Arizona","stateAbbrev":"AZ","postalCode":"85201","defaultCoordinates":{"latitude":33.43081,"longitude":-111.882},"country":"USA"},"active":true,"season":"2024"},{"id":22,"name":"Dodger
+        Stadium","link":"/api/v1/venues/22","location":{"address1":"1000 Vin Scully
+        Avenue","city":"Los Angeles","state":"California","stateAbbrev":"CA","postalCode":"90012-1199","defaultCoordinates":{"latitude":34.07368,"longitude":-118.24053},"azimuthAngle":26.0,"elevation":515,"country":"USA","phone":"(323)
+        224-1500"},"active":true,"season":"2024"},{"id":4249,"name":"Salt River Fields
+        at Talking Stick","link":"/api/v1/venues/4249","location":{"address1":"Salt
+        River Fields at Talking Stick","address2":"7555 N. Pima Road","city":"Scottsdale","state":"Arizona","stateAbbrev":"AZ","postalCode":"85256","defaultCoordinates":{"latitude":33.54523,"longitude":-111.88552},"azimuthAngle":72.0,"elevation":1298,"country":"USA","phone":"(602)
+        462-6561"},"active":true,"season":"2024"},{"id":5150,"name":"Gocheok Sky Dome","link":"/api/v1/venues/5150","location":{"address1":"63-6
+        Gocheok-dong","city":"Seoul","defaultCoordinates":{"latitude":37.4982,"longitude":126.867},"country":"Republic
+        of Korea"},"active":true,"season":"2024"},{"id":31,"name":"PNC Park","link":"/api/v1/venues/31","location":{"address1":"115
+        Federal Street","city":"Pittsburgh","state":"Pennsylvania","stateAbbrev":"PA","postalCode":"15212","defaultCoordinates":{"latitude":40.446904,"longitude":-80.005753},"azimuthAngle":116.0,"elevation":780,"country":"USA","phone":"(412)
+        323-5000"},"active":true,"season":"2024"},{"id":32,"name":"American Family
+        Field","link":"/api/v1/venues/32","location":{"address1":"One Brewers Way","city":"Milwaukee","state":"Wisconsin","stateAbbrev":"WI","postalCode":"53214","defaultCoordinates":{"latitude":43.02838,"longitude":-87.97099},"azimuthAngle":129.0,"elevation":597,"country":"USA","phone":"(414)
+        902-4400"},"active":true,"season":"2024"},{"id":2856,"name":"Clover Park","link":"/api/v1/venues/2856","location":{"address1":"31
+        Piazza Drive","city":"Port St. Lucie","state":"Florida","stateAbbrev":"FL","postalCode":"34986","defaultCoordinates":{"latitude":27.3249268,"longitude":-80.4068854},"country":"USA"},"active":true,"season":"2024"},{"id":680,"name":"T-Mobile
+        Park","link":"/api/v1/venues/680","location":{"address1":"P.O. Box 4100","city":"Seattle","state":"Washington","stateAbbrev":"WA","postalCode":"98104","defaultCoordinates":{"latitude":47.591333,"longitude":-122.33251},"azimuthAngle":49.0,"elevation":10,"country":"USA","phone":"(206)
+        346-4000"},"active":true,"season":"2024"},{"id":2602,"name":"Great American
+        Ball Park","link":"/api/v1/venues/2602","location":{"address1":"100 Main Street","city":"Cincinnati","state":"Ohio","stateAbbrev":"OH","postalCode":"45202-4109","defaultCoordinates":{"latitude":39.097389,"longitude":-84.506611},"azimuthAngle":122.0,"elevation":535,"country":"USA","phone":"(513)
+        765-7000"},"active":true,"season":"2024"},{"id":2603,"name":"Surprise Stadium","link":"/api/v1/venues/2603","location":{"address1":"Surprise
+        Stadium","address2":"15960 N Bullard Avenue","city":"Surprise","state":"Arizona","stateAbbrev":"AZ","postalCode":"85374","defaultCoordinates":{"latitude":33.62762,"longitude":-112.37849},"country":"USA","phone":"(623)
+        222-2222"},"active":true,"season":"2024"},{"id":2862,"name":"Lee Health Sports
+        Complex","link":"/api/v1/venues/2862","location":{"address1":"14400 Six Mile
+        Cypress Pkwy.","city":"Fort Myers","state":"Florida","stateAbbrev":"FL","postalCode":"33912","defaultCoordinates":{"latitude":26.537803,"longitude":-81.841973},"country":"USA"},"active":true,"season":"2024"},{"id":2735,"name":"Journey
+        Bank Ballpark","link":"/api/v1/venues/2735","location":{"address1":"1700 W.
+        4th Street","city":"Williamsport","state":"Pennsylvania","stateAbbrev":"PA","postalCode":"17701","defaultCoordinates":{"latitude":41.2419845,"longitude":-77.0475104},"country":"USA"},"active":true,"season":"2024"},{"id":2500,"name":"Tempe
+        Diablo Stadium","link":"/api/v1/venues/2500","location":{"address1":"Tempe
+        Diablo Stadium","address2":"2200 W  Alameda Drive #105","city":"Tempe","state":"Arizona","stateAbbrev":"AZ","postalCode":"85282","defaultCoordinates":{"latitude":33.40092,"longitude":-111.9707},"country":"USA","phone":"(480)
+        350-5205"},"active":true,"season":"2024"},{"id":4169,"name":"loanDepot park","link":"/api/v1/venues/4169","location":{"address1":"501
+        Marlins Way","city":"Miami","state":"Florida","stateAbbrev":"FL","postalCode":"33125","defaultCoordinates":{"latitude":25.77796236,"longitude":-80.21951795},"azimuthAngle":128.0,"elevation":10,"country":"USA"},"active":true,"season":"2024"},{"id":2889,"name":"Busch
+        Stadium","link":"/api/v1/venues/2889","location":{"address1":"700 Clark Street","city":"St.
+        Louis","state":"Missouri","stateAbbrev":"MO","postalCode":"63102","defaultCoordinates":{"latitude":38.62256667,"longitude":-90.19286667},"azimuthAngle":62.0,"elevation":460,"country":"USA","phone":"(314)
+        345-9600"},"active":true,"season":"2024"},{"id":2507,"name":"Hohokam Stadium","link":"/api/v1/venues/2507","location":{"address1":"HoHoKam
+        Park","address2":"1235 N. Center Street","city":"Mesa","state":"Arizona","stateAbbrev":"AZ","postalCode":"85201","defaultCoordinates":{"latitude":33.43831,"longitude":-111.82973},"country":"USA","phone":"(480)
+        964-4467"},"active":true,"season":"2024"},{"id":2508,"name":"Ed Smith Stadium","link":"/api/v1/venues/2508","location":{"address1":"Ed
+        Smith Stadium","address2":"12th Street and Tuttle Avenue","city":"Sarasota","state":"Florida","stateAbbrev":"FL","postalCode":"34237","defaultCoordinates":{"latitude":27.34795,"longitude":-82.5174},"country":"USA","phone":"(941)
+        747-3031"},"active":true,"season":"2024"},{"id":5325,"name":"Globe Life Field","link":"/api/v1/venues/5325","location":{"address1":"734
+        Stadium Drive","city":"Arlington","state":"Texas","stateAbbrev":"TX","postalCode":"76011","defaultCoordinates":{"latitude":32.747299,"longitude":-97.081818},"azimuthAngle":30.0,"elevation":545,"country":"USA","phone":"(817)
+        533-1972"},"active":true,"season":"2024"},{"id":2511,"name":"Publix Field
+        at Joker Marchant Stadium","link":"/api/v1/venues/2511","location":{"address1":"2301
+        Lakeland Hills Blvd.","city":"Lakeland","state":"Florida","stateAbbrev":"FL","postalCode":"33805","defaultCoordinates":{"latitude":28.074822,"longitude":-81.9508415},"country":"USA"},"active":true,"season":"2024"},{"id":4309,"name":"JetBlue
+        Park","link":"/api/v1/venues/4309","location":{"address1":"11500 Daniels Parkway","city":"Ft.
+        Myers","state":"Florida","stateAbbrev":"FL","postalCode":"33913","defaultCoordinates":{"latitude":26.55092,"longitude":-81.76225},"country":"USA"},"active":true,"season":"2024"},{"id":2518,"name":"American
+        Family Fields of Phoenix","link":"/api/v1/venues/2518","location":{"address1":"Maryvale
+        Baseball Park","address2":"3600 N 51st Avenue","city":"Phoenix","state":"Arizona","stateAbbrev":"AZ","postalCode":"85031","defaultCoordinates":{"latitude":33.49202,"longitude":-112.1727},"country":"USA","phone":"(623)
+        245-5500"},"active":true,"season":"2024"},{"id":2392,"name":"Minute Maid Park","link":"/api/v1/venues/2392","location":{"address1":"501
+        Crawford Street","city":"Houston","state":"Texas","stateAbbrev":"TX","postalCode":"77002","defaultCoordinates":{"latitude":29.756967,"longitude":-95.355509},"azimuthAngle":343.0,"elevation":45,"country":"USA","phone":"(713)
+        259-8000"},"active":true,"season":"2024"},{"id":2520,"name":"Roger Dean Chevrolet
+        Stadium","link":"/api/v1/venues/2520","location":{"address1":"4751 Main Street","city":"Jupiter","state":"Florida","stateAbbrev":"FL","postalCode":"33458","defaultCoordinates":{"latitude":26.890957,"longitude":-80.116365},"country":"USA"},"active":true,"season":"2024"},{"id":3289,"name":"Citi
+        Field","link":"/api/v1/venues/3289","location":{"address1":"Citi Field","city":"Flushing","state":"New
+        York","stateAbbrev":"NY","postalCode":"11368","defaultCoordinates":{"latitude":40.75753012,"longitude":-73.84559155},"azimuthAngle":13.0,"elevation":10,"country":"USA","phone":"(718)
+        507-6387"},"active":true,"season":"2024"},{"id":2394,"name":"Comerica Park","link":"/api/v1/venues/2394","location":{"address1":"2100
+        Woodward Avenue","city":"Detroit","state":"Michigan","stateAbbrev":"MI","postalCode":"48201","defaultCoordinates":{"latitude":42.3391151,"longitude":-83.048695},"azimuthAngle":150.0,"elevation":600,"country":"USA","phone":"(313)
+        471-2000"},"active":true,"season":"2024"},{"id":2395,"name":"Oracle Park","link":"/api/v1/venues/2395","location":{"address1":"24
+        Willie Mays Plaza","city":"San Francisco","state":"California","stateAbbrev":"CA","postalCode":"94107","defaultCoordinates":{"latitude":37.778383,"longitude":-122.389448},"azimuthAngle":85.0,"elevation":0,"country":"USA","phone":"(415)
+        972-2000"},"active":true,"season":"2024"},{"id":2523,"name":"George M. Steinbrenner
+        Field","link":"/api/v1/venues/2523","location":{"address1":"1 Steinbrenner
+        Drive","city":"Tampa","state":"Florida","stateAbbrev":"FL","postalCode":"33614","defaultCoordinates":{"latitude":27.97997,"longitude":-82.50702},"azimuthAngle":60.0,"elevation":34,"country":"USA"},"active":true,"season":"2024"},{"id":5340,"name":"Estadio
+        Alfredo Harp Helu","link":"/api/v1/venues/5340","location":{"city":"Mexico
+        City","country":"Mexico"},"active":true,"season":"2024"},{"id":2526,"name":"LECOM
+        Park","link":"/api/v1/venues/2526","location":{"address1":"1611 9th Street
+        W.","city":"Bradenton","state":"Florida","stateAbbrev":"FL","postalCode":"34205","defaultCoordinates":{"latitude":27.48553,"longitude":-82.57038},"country":"USA"},"active":true,"season":"2024"},{"id":3809,"name":"Camelback
+        Ranch","link":"/api/v1/venues/3809","location":{"address1":"Camelback Ranch","address2":"10710
+        W. Camelback Ranch","city":"Glendale","state":"Arizona","stateAbbrev":"AZ","postalCode":"85037","defaultCoordinates":{"latitude":33.51434,"longitude":-112.29612},"country":"USA","phone":"(623)
+        842-6000"},"active":true,"season":"2024"},{"id":4705,"name":"Truist Park","link":"/api/v1/venues/4705","location":{"address1":"755
+        Battery Avenue","city":"Atlanta","state":"Georgia","stateAbbrev":"GA","postalCode":"30339","defaultCoordinates":{"latitude":33.890672,"longitude":-84.467641},"azimuthAngle":145.0,"elevation":1001,"country":"USA"},"active":true,"season":"2024"},{"id":2529,"name":"Sutter
+        Health Park","link":"/api/v1/venues/2529","location":{"address1":"400 Ballpark
+        Drive","city":"Sacramento","state":"California","stateAbbrev":"CA","postalCode":"95691","defaultCoordinates":{"latitude":38.57994,"longitude":-121.51246},"azimuthAngle":46.0,"elevation":24,"country":"USA","phone":"916-371-HITS"},"active":true,"season":"2024"},{"id":2530,"name":"Peoria
+        Stadium","link":"/api/v1/venues/2530","location":{"address1":"Peoria Sports
+        Complex","address2":"16101 N 83rd Avenue","city":"Peoria","state":"Arizona","stateAbbrev":"AZ","postalCode":"85382","defaultCoordinates":{"latitude":33.63187,"longitude":-112.23359},"country":"USA","phone":"(623)
+        878-4337"},"active":true,"season":"2024"},{"id":2532,"name":"Scottsdale Stadium","link":"/api/v1/venues/2532","location":{"address1":"Scottsdale
+        Stadium","address2":"7408 East Osborn Road","city":"Scottsdale","state":"Arizona","stateAbbrev":"AZ","postalCode":"85251","defaultCoordinates":{"latitude":33.48869,"longitude":-111.92099},"country":"USA","phone":"(480)
+        312-2586"},"active":true,"season":"2024"},{"id":2534,"name":"Charlotte Sports
+        Park","link":"/api/v1/venues/2534","location":{"address1":"2300 El Jobean
+        Rd.","city":"Port Charlotte","state":"Florida","stateAbbrev":"FL","postalCode":"33948","defaultCoordinates":{"latitude":26.99888,"longitude":-82.18212},"country":"USA"},"active":true,"season":"2024"},{"id":2536,"name":"TD
+        Ballpark","link":"/api/v1/venues/2536","location":{"address1":"373 Douglas
+        Avenue","city":"Dunedin","state":"Florida","stateAbbrev":"FL","postalCode":"34698","defaultCoordinates":{"latitude":27.9745812,"longitude":-82.7913301},"azimuthAngle":138.0,"elevation":19,"country":"USA"},"active":true,"season":"2024"},{"id":3049,"name":"Estadio
+        Quisqueya Juan Marichal","link":"/api/v1/venues/3049","location":{"address1":"3456
+        Ave Tiradentes, Ens. La Fe","city":"Santo Domingo","country":"Dominican Republic"},"active":true,"season":"2024"},{"id":5355,"name":"Las
+        Vegas Ballpark","link":"/api/v1/venues/5355","location":{"address1":"1650
+        South Pavilion Center Drive","city":"Las Vegas","state":"Nevada","stateAbbrev":"NV","postalCode":"89135","defaultCoordinates":{"latitude":36.152607,"longitude":-115.329888},"country":"USA"},"active":true,"season":"2024"},{"id":3309,"name":"Nationals
+        Park","link":"/api/v1/venues/3309","location":{"address1":"1500 South Capitol
+        Street, SE","city":"Washington","state":"District of Columbia","stateAbbrev":"DC","postalCode":"20003-1507","defaultCoordinates":{"latitude":38.872861,"longitude":-77.007501},"azimuthAngle":28.0,"elevation":35,"country":"USA","phone":"(202)
+        349-0400"},"active":true,"season":"2024"},{"id":3949,"name":"Rickwood Field","link":"/api/v1/venues/3949","location":{"address1":"1137
+        2nd Avenue West","city":"Birmingham","state":"Alabama","stateAbbrev":"AL","postalCode":"35204","defaultCoordinates":{"latitude":33.5023303,"longitude":-86.8563555},"country":"USA"},"active":true,"season":"2024"},{"id":3312,"name":"Target
+        Field","link":"/api/v1/venues/3312","location":{"address1":"1 Twins Way","city":"Minneapolis","state":"Minnesota","stateAbbrev":"MN","postalCode":"55403","defaultCoordinates":{"latitude":44.981829,"longitude":-93.277891},"azimuthAngle":129.0,"elevation":828,"country":"USA","phone":"(612)
+        659-3400"},"active":true,"season":"2024"},{"id":3313,"name":"Yankee Stadium","link":"/api/v1/venues/3313","location":{"address1":"One
+        East 161st Street","city":"Bronx","state":"New York","stateAbbrev":"NY","postalCode":"10451","defaultCoordinates":{"latitude":40.82919482,"longitude":-73.9264977},"azimuthAngle":75.0,"elevation":55,"country":"USA","phone":"(718)
+        293-4300"},"active":true,"season":"2024"},{"id":2680,"name":"Petco Park","link":"/api/v1/venues/2680","location":{"address1":"100
+        Park Boulevard","city":"San Diego","state":"California","stateAbbrev":"CA","postalCode":"92101","defaultCoordinates":{"latitude":32.707861,"longitude":-117.157278},"azimuthAngle":0.0,"elevation":23,"country":"USA","phone":"(619)
+        795-5000"},"active":true,"season":"2024"},{"id":2681,"name":"Citizens Bank
+        Park","link":"/api/v1/venues/2681","location":{"address1":"One Citizens Bank
+        Way","city":"Philadelphia","state":"Pennsylvania","stateAbbrev":"PA","postalCode":"19148","defaultCoordinates":{"latitude":39.90539086,"longitude":-75.16716957},"azimuthAngle":9.0,"elevation":20,"country":"USA","phone":"(215)
+        463-6000"},"active":true,"season":"2024"},{"id":3834,"name":"Goodyear Ballpark","link":"/api/v1/venues/3834","location":{"address1":"Goodyear
+        Ballpark","address2":"1933 S Ballpark Way","city":"Goodyear","state":"Arizona","stateAbbrev":"AZ","postalCode":"85338","defaultCoordinates":{"latitude":33.42892,"longitude":-112.39027},"country":"USA","phone":"(623)
+        882-3120"},"active":true,"season":"2024"}]}'
+    headers:
+      Accept-Ranges:
+      - bytes
+      Access-Control-Allow-Credentials:
+      - 'true'
+      Access-Control-Allow-Headers:
+      - Content-Type,X-Requested-With,accept,Origin,Access-Control-Request-Method,Access-Control-Request-Headers,Authorization
+      Access-Control-Allow-Methods:
+      - GET, POST, PUT, DELETE, OPTIONS
+      Access-Control-Allow-Origin:
+      - '*'
+      Access-Control-Expose-Headers:
+      - Content-Type,X-Requested-With,accept,Origin,Access-Control-Request-Method,Access-Control-Request-Headers,Authorization
+      Age:
+      - '0'
+      Cache-Control:
+      - max-age=600, public, stale-while-revalidate=30, stale-if-error=86400
+      Connection:
+      - keep-alive
+      Content-Encoding:
+      - gzip
+      Content-Length:
+      - '4814'
+      Content-Type:
+      - application/json;charset=UTF-8
+      Date:
+      - Wed, 22 Apr 2026 16:28:57 GMT
+      Vary:
+      - accept-encoding, Accept-Encoding
+      Via:
+      - 1.1 google, 1.1 varnish, 1.1 varnish
+      X-Cache:
+      - MISS, HIT
+      X-Cache-Hits:
+      - 0, 1
+      X-Content-Type-Options:
+      - nosniff
+      X-Frame-Options:
+      - DENY
+      X-Served-By:
+      - cache-iad-kjyo7100174-IAD, cache-mia-kmia1760108-MIA
+      X-Timer:
+      - S1776875338.882666,VS0,VE1
+      X-XSS-Protection:
+      - '0'
+    status:
+      code: 200
+      message: OK
+version: 1

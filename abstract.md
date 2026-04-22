@@ -1,16 +1,16 @@
 # HR Predictor — Abstract
 
-**Updated:** 2026-04-22 — end of Phase 0
+**Updated:** 2026-04-22 — end of Phase 1
 
 ## Current phase
-**Phase 1 — Historical Statcast backfill** — not started.
+**Phase 2 — Daily operational ingestion** — not started.
 
 ## Project elevator pitch
 Per-game MLB home-run probability predictor for prop-betting decision support. Local-first Python/Next.js stack. Trained on Statcast 2021–present. Calibration-first evaluation (Brier, ECE, reliability curves). Phased development; context clears between phases.
 
 ## Completed phases
 - [x] Phase 0 — Scaffolding (tag: `phase-0-complete`)
-- [ ] Phase 1 — Historical Statcast backfill
+- [x] Phase 1 — Historical Statcast backfill (tag: `phase-1-complete`)
 - [ ] Phase 2 — Daily operational ingestion
 - [ ] Phase 3 — Feature engineering
 - [ ] Phase 4 — Baseline model + evaluation framework
@@ -35,11 +35,20 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **Integration-only infra tests:** `tests/test_infra.py` requires real docker-compose Postgres + Redis — no mocks.
 - **Coverage gate** enforced at ≥80% on new code via `pytest --cov`; Phase 0 ships at 100% on `src/core/`.
 
+### Phase 1 decisions
+- **Parks metadata is hybrid:** MLB StatsAPI provides `park_id`, `name`, `city`, `state`, `lat/lon`, `orientation_deg` (via `location.azimuthAngle`), and `elevation_ft` (via `location.elevation`). Only `roof_type` is hand-maintained (dict in `src/ingestion/parks.py`). See `phases/phase1/NOTES.md` — the PROMPT.md dict used a fabricated ID system; all IDs are now StatsAPI-authoritative.
+- **`games.home_team_id`/`away_team_id` carry no FK to `teams`** (migration `0002_drop_games_team_fks`). All-Star game IDs (159/160) are legal MLB IDs but don't belong to the 30-team dimension. `venue_id` FK is retained.
+- **`statcast_pitches` partitioned yearly by `game_date`** (2021..current_year+1). Composite PK `(game_date, game_pk, at_bat_number, pitch_number)`.
+- **Resume is date-based** in `ingestion_state`. Mid-day crash replays the whole day; idempotency guaranteed by `ON CONFLICT DO UPDATE` on the composite PK.
+- **All external API responses parsed through Pydantic** (`src/ingestion/wire_models.py`) before touching SQLAlchemy.
+- **Data load results:** 3,947,287 pitches, 13,607 games, 3,490 batters, 2,811 pitchers across 2021-04-01 → 2026-04-21. Spot checks passed (Judge 62nd HR, Ohtani 57 HRs in 2024, Coors 208 HRs in 2023). Audit report: `reports/phase1_audit_20260422.md`.
+
 ## Open questions / decisions pending
-- None yet. Add as they arise.
+- None blocking Phase 2.
 
 ## Open bugs / technical debt
-- None yet.
+- **`launch_speed` null-rate threshold in the Phase 1 PROMPT is misframed.** ~67% of pitches are non-ball-in-play (balls, strikes, fouls) — so `launch_speed` is legitimately null for most rows. The "under 15%" acceptance threshold in PROMPT.md only makes sense for always-populated columns like `pitch_type`. Flagged in `phases/phase1/NOTES.md`; Phase 3 feature-engineering layer will compute ball-in-play-conditional null rates.
+- **`bat_speed` has ~19% coverage in 2023** (not "all null for pre-2024" as PROMPT.md expected). Statcast's bat-tracking rollout started mid-2023. 2024+ coverage is ~42-44%, aligned with the prompt's spirit.
 
 ## Next action
-Execute Phase 1 prompt at `phases/phase1/PROMPT.md` after clearing context.
+Execute Phase 2 prompt at `phases/phase2/PROMPT.md` after clearing context.

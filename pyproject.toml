@@ -56,7 +56,9 @@ select = ["E", "F", "I", "N", "UP", "B", "W"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["N802", "N803"]
+"tests/*" = ["N802", "N803", "N806"]
+# `Session_` is idiomatic for SQLAlchemy sessionmaker instances.
+"src/ingestion/statcast_backfill.py" = ["N806", "N803"]
 
 [tool.black]
 line-length = 100
