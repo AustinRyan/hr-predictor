@@ -49,6 +49,10 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 ## Open bugs / technical debt
 - **`launch_speed` null-rate threshold in the Phase 1 PROMPT is misframed.** ~67% of pitches are non-ball-in-play (balls, strikes, fouls) — so `launch_speed` is legitimately null for most rows. The "under 15%" acceptance threshold in PROMPT.md only makes sense for always-populated columns like `pitch_type`. Flagged in `phases/phase1/NOTES.md`; Phase 3 feature-engineering layer will compute ball-in-play-conditional null rates.
 - **`bat_speed` has ~19% coverage in 2023** (not "all null for pre-2024" as PROMPT.md expected). Statcast's bat-tracking rollout started mid-2023. 2024+ coverage is ~42-44%, aligned with the prompt's spirit.
+- **Pre-commit hooks pin ruff 0.5.0 / black 24.4.2** while the `uv` env ships newer versions, causing an occasional stash-rollback loop during commits. Workaround: `uv run pre-commit run --all-files` before staging. Cheap fix is bumping the hook pins in an early Phase 2 chore commit.
+
+## Migration numbering for Phase 2
+The Phase 2 PROMPT.md references migration `0002_operational_tables`, but Phase 1 already used `0002_drop_games_team_fks`. Phase 2 should start at `0003_operational_tables`.
 
 ## Next action
 Execute Phase 2 prompt at `phases/phase2/PROMPT.md` after clearing context.
