@@ -95,18 +95,14 @@ def run_audit(engine: Engine | None = None, out_dir: Path | None = None) -> Path
 
 def _row_counts_section(engine: Engine) -> AuditSection:
     with engine.connect() as c:
-        rows = c.execute(
-            text(
-                """
+        rows = c.execute(text("""
                 SELECT EXTRACT(year FROM game_date)::int AS season,
                        COUNT(*) AS pitches,
                        COUNT(DISTINCT game_pk) AS games
                 FROM statcast_pitches
                 GROUP BY 1
                 ORDER BY 1
-                """
-            )
-        ).all()
+                """)).all()
         totals = c.execute(
             text(
                 "SELECT COUNT(*), COUNT(DISTINCT game_pk), COUNT(DISTINCT batter), COUNT(DISTINCT pitcher) FROM statcast_pitches"
@@ -154,33 +150,21 @@ def _null_rates_section(engine: Engine) -> AuditSection:
 
 def _fk_integrity_section(engine: Engine) -> AuditSection:
     with engine.connect() as c:
-        orphan_batters = c.execute(
-            text(
-                """
+        orphan_batters = c.execute(text("""
                 SELECT COUNT(DISTINCT batter) FROM statcast_pitches p
                 LEFT JOIN players pl ON pl.mlbam_id = p.batter
                 WHERE pl.mlbam_id IS NULL
-                """
-            )
-        ).scalar_one()
-        orphan_pitchers = c.execute(
-            text(
-                """
+                """)).scalar_one()
+        orphan_pitchers = c.execute(text("""
                 SELECT COUNT(DISTINCT pitcher) FROM statcast_pitches p
                 LEFT JOIN players pl ON pl.mlbam_id = p.pitcher
                 WHERE pl.mlbam_id IS NULL
-                """
-            )
-        ).scalar_one()
-        orphan_games = c.execute(
-            text(
-                """
+                """)).scalar_one()
+        orphan_games = c.execute(text("""
                 SELECT COUNT(DISTINCT p.game_pk) FROM statcast_pitches p
                 LEFT JOIN games g ON g.game_pk = p.game_pk
                 WHERE g.game_pk IS NULL
-                """
-            )
-        ).scalar_one()
+                """)).scalar_one()
     body = (
         f"- Batters in pitches missing from players: **{orphan_batters}**\n"
         f"- Pitchers in pitches missing from players: **{orphan_pitchers}**\n"
@@ -191,30 +175,18 @@ def _fk_integrity_section(engine: Engine) -> AuditSection:
 
 def _venue_coverage_section(engine: Engine) -> AuditSection:
     with engine.connect() as c:
-        missing = (
-            c.execute(
-                text(
-                    """
+        missing = c.execute(text("""
                 SELECT DISTINCT g.venue_id FROM games g
                 LEFT JOIN parks p ON p.park_id = g.venue_id
                 WHERE g.venue_id IS NOT NULL AND p.park_id IS NULL
-                """
-                )
-            )
-            .scalars()
-            .all()
-        )
+                """)).scalars().all()
         total_parks = c.execute(text("SELECT COUNT(*) FROM parks")).scalar_one()
-        parks_with_full_attrs = c.execute(
-            text(
-                """
+        parks_with_full_attrs = c.execute(text("""
                 SELECT COUNT(*) FROM parks
                 WHERE orientation_deg IS NOT NULL
                   AND elevation_ft IS NOT NULL
                   AND roof_type IS NOT NULL
-                """
-            )
-        ).scalar_one()
+                """)).scalar_one()
     body = (
         f"- Parks rows: **{total_parks}** (of which {parks_with_full_attrs} have full orientation/elevation/roof)\n"
         f"- Games referencing an unknown venue_id: **{len(missing)}**"
@@ -228,9 +200,7 @@ def _date_gaps_section(engine: Engine) -> AuditSection:
     # Report calendar-day gaps inside each season's observed date range,
     # minus a handful of predictable off-days (All-Star break, etc).
     with engine.connect() as c:
-        by_season = c.execute(
-            text(
-                """
+        by_season = c.execute(text("""
                 SELECT EXTRACT(year FROM game_date)::int AS season,
                        MIN(game_date) AS first_date,
                        MAX(game_date) AS last_date,
@@ -238,9 +208,7 @@ def _date_gaps_section(engine: Engine) -> AuditSection:
                 FROM statcast_pitches
                 GROUP BY 1
                 ORDER BY 1
-                """
-            )
-        ).all()
+                """)).all()
     lines = [
         "| season | first | last | days with pitches | calendar days | gap |",
         "|---|---|---|---:|---:|---:|",
@@ -287,13 +255,11 @@ def _spot_checks_section(engine: Engine) -> AuditSection:
             results.append("- **Aaron Judge**: id lookup failed")
         else:
             row = c.execute(
-                text(
-                    """
+                text("""
                     SELECT COUNT(*) AS n, MIN(launch_speed) AS min_ls, MAX(launch_speed) AS max_ls
                     FROM statcast_pitches
                     WHERE events='home_run' AND batter=:b AND game_date='2022-10-04'
-                    """
-                ),
+                    """),
                 {"b": judge_id},
             ).one()
             ok = row.n == 1 and row.min_ls and 99 <= row.min_ls <= 101
@@ -306,12 +272,10 @@ def _spot_checks_section(engine: Engine) -> AuditSection:
             results.append("- **Shohei Ohtani**: id lookup failed")
         else:
             n = c.execute(
-                text(
-                    """
+                text("""
                     SELECT COUNT(*) FROM statcast_pitches
                     WHERE events='home_run' AND batter=:b AND EXTRACT(year FROM game_date)=2024
-                    """
-                ),
+                    """),
                 {"b": ohtani_id},
             ).scalar_one()
             results.append(
@@ -325,13 +289,11 @@ def _spot_checks_section(engine: Engine) -> AuditSection:
             results.append("- **Coors Field**: id lookup failed")
         else:
             n = c.execute(
-                text(
-                    """
+                text("""
                     SELECT COUNT(*) FROM statcast_pitches p
                     JOIN games g ON g.game_pk = p.game_pk
                     WHERE g.venue_id=:v AND p.events='home_run' AND g.season=2023
-                    """
-                ),
+                    """),
                 {"v": coors_id},
             ).scalar_one()
             results.append(
@@ -344,13 +306,11 @@ def _spot_checks_section(engine: Engine) -> AuditSection:
 def _lookup_player_id(conn: Connection, first: str, last: str) -> int | None:
     # Prefer our DB enrichment; fall back to pybaseball if absent.
     row = conn.execute(
-        text(
-            """
+        text("""
             SELECT mlbam_id FROM players
             WHERE LOWER(first_name)=:f AND LOWER(last_name)=:l
             ORDER BY mlbam_id DESC LIMIT 1
-            """
-        ),
+            """),
         {"f": first.lower(), "l": last.lower()},
     ).scalar()
     if row is not None:

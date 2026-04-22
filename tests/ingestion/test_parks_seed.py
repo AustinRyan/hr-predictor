@@ -64,15 +64,13 @@ def test_seed_parks_sets_orientation_and_elevation(parks_session) -> None:
         # Orientation + elevation come from StatsAPI directly; every
         # primary park should have both.
         row = s.execute(
-            text(
-                """
+            text("""
                 SELECT COUNT(*) FROM parks
                 WHERE park_id = ANY(:ids)
                   AND orientation_deg IS NOT NULL
                   AND elevation_ft IS NOT NULL
                   AND roof_type IS NOT NULL
-                """
-            ),
+                """),
             {"ids": sorted(vid for vid in ROOF_TYPES if vid not in {2523, 2529})},
         ).scalar_one()
         assert row == len(ROOF_TYPES) - 2

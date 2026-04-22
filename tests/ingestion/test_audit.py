@@ -69,73 +69,49 @@ def _seed_minimum(engine: Engine) -> None:
         # 200 Coors HRs in 2023 → satisfies the spot check threshold
         for i in range(200):
             c.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO statcast_pitches
                         (game_date, game_pk, at_bat_number, pitch_number,
                          batter, pitcher, launch_speed, launch_angle, events)
                     VALUES
                         ('2023-07-04', 700000, :ab, :pn, 592450, 660271, 102.5, 30.0, 'home_run')
-                    """
-                ),
+                    """),
                 {"ab": i + 1, "pn": 1},
             )
         # 60 Ohtani 2024 HRs — need a 2024 game and pitches in that partition
-        c.execute(
-            text(
-                """INSERT INTO games (game_pk, game_date, season, venue_id)
-                   VALUES (700002, '2024-06-15', 2024, 19)"""
-            )
-        )
+        c.execute(text("""INSERT INTO games (game_pk, game_date, season, venue_id)
+                   VALUES (700002, '2024-06-15', 2024, 19)"""))
         for i in range(60):
             c.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO statcast_pitches
                         (game_date, game_pk, at_bat_number, pitch_number,
                          batter, pitcher, launch_speed, launch_angle, events)
                     VALUES
                         ('2024-06-15', 700002, :ab, :pn, 660271, 592450, 105.2, 32.0, 'home_run')
-                    """
-                ),
+                    """),
                 {"ab": i + 1, "pn": 1},
             )
         # Judge 62nd HR synthetic row — 2022-10-04
-        c.execute(
-            text(
-                """INSERT INTO games (game_pk, game_date, season, venue_id)
-                   VALUES (700003, '2022-10-04', 2022, 19)"""
-            )
-        )
-        c.execute(
-            text(
-                """
+        c.execute(text("""INSERT INTO games (game_pk, game_date, season, venue_id)
+                   VALUES (700003, '2022-10-04', 2022, 19)"""))
+        c.execute(text("""
                 INSERT INTO statcast_pitches
                     (game_date, game_pk, at_bat_number, pitch_number,
                      batter, pitcher, launch_speed, launch_angle, events)
                 VALUES
                     ('2022-10-04', 700003, 1, 1, 592450, 660271, 100.2, 35.0, 'home_run')
-                """
-            )
-        )
+                """))
         # A suspicious row: launch_speed > 125
-        c.execute(
-            text(
-                """INSERT INTO games (game_pk, game_date, season, venue_id)
-                   VALUES (700004, '2023-08-01', 2023, 19)"""
-            )
-        )
-        c.execute(
-            text(
-                """
+        c.execute(text("""INSERT INTO games (game_pk, game_date, season, venue_id)
+                   VALUES (700004, '2023-08-01', 2023, 19)"""))
+        c.execute(text("""
                 INSERT INTO statcast_pitches
                     (game_date, game_pk, at_bat_number, pitch_number,
                      batter, pitcher, launch_speed, launch_angle, events)
                 VALUES
                     ('2023-08-01', 700004, 1, 1, 592450, 660271, 130.0, 25.0, 'home_run')
-                """
-            )
-        )
+                """))
 
 
 @pytest.fixture()

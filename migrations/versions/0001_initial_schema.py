@@ -174,8 +174,7 @@ def _create_statcast_partitioned_table() -> None:
     # Hand-rolled DDL: Alembic's op.create_table does not emit
     # PARTITION BY RANGE, and Postgres refuses PK constraints on
     # partitioned tables unless the partition key is part of the PK.
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE statcast_pitches (
             game_date DATE NOT NULL,
             game_pk INTEGER NOT NULL,
@@ -215,20 +214,17 @@ def _create_statcast_partitioned_table() -> None:
             swing_length DOUBLE PRECISION,
             PRIMARY KEY (game_date, game_pk, at_bat_number, pitch_number)
         ) PARTITION BY RANGE (game_date)
-        """
-    )
+        """)
 
 
 def _create_yearly_partitions() -> None:
     end = _partition_end_year()
     for year in range(PARTITION_START_YEAR, end + 1):
-        op.execute(
-            f"""
+        op.execute(f"""
             CREATE TABLE statcast_pitches_{year}
             PARTITION OF statcast_pitches
             FOR VALUES FROM ('{year}-01-01') TO ('{year + 1}-01-01')
-            """
-        )
+            """)
 
 
 def _create_statcast_indexes() -> None:
