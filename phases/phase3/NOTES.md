@@ -31,3 +31,23 @@ close.
 - **Strict `<` leakage contract** — all season/career aggregates use
   `sp.game_date < mk.reference_date`. Regression-tested via
   `test_sql_uses_strict_less_than_reference_date`.
+
+---
+
+## Task 10 — bullpen features are a league-wide proxy
+
+`src/features/bullpen.py` aggregates over every pitch in the season
+excluding the starter of the current matchup. This is NOT a
+team-specific bullpen. Rationale: accurate team-specific bullpen
+classification requires a per-team-season starter/reliever taxonomy
+(pitchers who start ≥ X% of their appearances are starters) which is
+non-trivial to compute correctly and wasn't needed to unblock Phase 3.
+
+**Impact:** the `bp_*` features are all league-wide averages with
+the current starter excluded. The model will see a less-informative
+signal than true team-bullpen features would provide. Acceptable for
+a baseline.
+
+**Phase 4+ refinement:** precompute a `pitcher_role_by_team_season`
+table (pitcher_id, team, season, role ∈ {starter, reliever}) and
+replace bullpen_sql with a team-specific join.
