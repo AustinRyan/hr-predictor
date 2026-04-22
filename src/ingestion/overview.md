@@ -24,6 +24,12 @@ All external responses are parsed through Pydantic wire models
   `python -m src.ingestion.audit`.
 - `mlb_statsapi_client.fetch_*` — typed wrappers around the public
   `statsapi.mlb.com/api/v1` endpoints; return Pydantic objects.
+- `park_factors.refresh_park_factors(season, engine=...)` —
+  fetches Baseball Savant's handedness-split park-factor leaderboard
+  (one HTTP call per L/R), parses the page's embedded
+  `var data = [...]` literal, fans out each venue row into one
+  `park_factors` row per (metric) and upserts on
+  `(park_id, season, batter_handedness, metric)`.
 
 ## Public interface
 ```python
@@ -34,6 +40,7 @@ from src.ingestion.audit import run_audit
 from src.ingestion.mlb_statsapi_client import (
     fetch_venues, fetch_venue, fetch_teams, fetch_schedule,
 )
+from src.ingestion.park_factors import refresh_park_factors
 ```
 
 ## Internal dependencies
@@ -64,3 +71,9 @@ from src.ingestion.mlb_statsapi_client import (
   per venue** when hitting `/api/v1/venues?hydrate=location`. This
   contradicts the Phase 1 prompt but was verified on 72 venues. Only
   `roof_type` is not published and thus lives in a local dict.
+- **Savant park factors have no CSV endpoint** for handedness splits.
+  `park_factors.py` parses HTML and the embedded `var data = [...]`
+  literal. The querystring parameter is `batSide` (camelCase);
+  `bat_side` is silently ignored. `rolling=1` selects single-season
+  data; omitting it yields the 3-year rolling view. See
+  `phases/phase2/NOTES.md` for the locked-in parameter contract.
