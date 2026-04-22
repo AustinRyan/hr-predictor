@@ -30,6 +30,23 @@ All external responses are parsed through Pydantic wire models
   `var data = [...]` literal, fans out each venue row into one
   `park_factors` row per (metric) and upserts on
   `(park_id, season, batter_handedness, metric)`.
+- `mlb_statsapi.persist_daily_schedule(target_date, engine=...)` —
+  one-date orchestrator: hits schedule + boxscore + feed/live per
+  game; upserts `daily_schedule` + `projected_lineups`.
+- `weather.persist_weather_for_today(engine=...)` — one Open-Meteo
+  call per non-dome game in today's `daily_schedule`; skips dome
+  parks entirely (`roof_type = 'dome'`).
+- `statcast_incremental.run_incremental_statcast(today=None, engine=...)`
+  — re-pulls the last 7 days via Phase 1's `backfill_statcast` loader
+  with `resume=False`.
+- `daily_runner.run_daily(target_date=..., skip_statcast=..., skip_weather=...)`
+  — CLI orchestrator. Runs park factors (if stale), schedule, weather,
+  incremental Statcast. Collects per-step failures without bailing.
+  Runs as `python -m src.ingestion.daily_runner [--date YYYY-MM-DD]
+  [--skip-statcast] [--skip-weather]`.
+- `scheduler.start_scheduler()` — blocking APScheduler process with a
+  7 AM ET morning pull (full `daily_runner`) and an hourly 2–10 PM ET
+  pre-game refresh (skip Statcast).
 
 ## Public interface
 ```python
@@ -41,13 +58,19 @@ from src.ingestion.mlb_statsapi_client import (
     fetch_venues, fetch_venue, fetch_teams, fetch_schedule,
 )
 from src.ingestion.park_factors import refresh_park_factors
+from src.ingestion.mlb_statsapi import persist_daily_schedule
+from src.ingestion.weather import persist_weather_for_today
+from src.ingestion.statcast_incremental import run_incremental_statcast
+from src.ingestion.daily_runner import run_daily, DailyRunReport
+from src.ingestion.scheduler import build_scheduler, start_scheduler
 ```
 
 ## Internal dependencies
 - `src.core.db` — engine + session
 - `src.core.models` — SQLAlchemy tables
 - `src.core.logging_config` — JSON-line logger
-- External: `pybaseball`, `requests`, `pandas`, `vcrpy` (tests only)
+- External: `pybaseball`, `requests`, `requests-cache`, `pandas`,
+  `apscheduler`, `vcrpy` (tests only)
 
 ## Gotchas
 - **Parks + teams must be seeded before the backfill** — `games`
@@ -77,3 +100,19 @@ from src.ingestion.park_factors import refresh_park_factors
   `bat_side` is silently ignored. `rolling=1` selects single-season
   data; omitting it yields the 3-year rolling view. See
   `phases/phase2/NOTES.md` for the locked-in parameter contract.
+- **Boxscore batting order is empty pre-posting.** Morning `daily_runner`
+  runs may yield zero `projected_lineups` rows; the hourly pre-game
+  refresh fills them in. Upsert handles both passes via
+  `(game_pk, team_id, batting_order)` uniqueness.
+- **Weather `fetched_at` advances each run** — the
+  `(park_id, forecast_for_utc, fetched_at)` unique key means each
+  `persist_weather_for_today` call writes a new row per game (by design:
+  preserves forecast-revision history). Downstream features should
+  read the latest `fetched_at` per `(park_id, forecast_for_utc)`.
+- **Retractable parks are queried for weather.** `daily_schedule.roof_status`
+  disambiguates at feature-compute time.
+- **Park factors refresh is NOT daily.** `daily_runner` only calls
+  `refresh_park_factors` when `ParkFactor.updated_at` is older than
+  7 days. Savant updates this leaderboard seasonally.
+- **`fetch_game_content` lives on StatsAPI v1.1, not v1.** See
+  `phases/phase2/NOTES.md` → "StatsAPI client — feed/live is v1.1".
