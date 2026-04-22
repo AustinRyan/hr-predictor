@@ -18,6 +18,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     DateTime,
@@ -181,6 +182,78 @@ class IngestionState(Base):
     last_completed_date: Mapped[date | None] = mapped_column(Date)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     error_message: Mapped[str | None] = mapped_column(String(2048))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class DailySchedule(Base):
+    __tablename__ = "daily_schedule"
+
+    game_pk: Mapped[int] = mapped_column(Integer, primary_key=True)
+    game_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    home_team_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    away_team_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    venue_id: Mapped[int] = mapped_column(Integer, ForeignKey("parks.park_id"), nullable=False)
+    game_start_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    game_start_local: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    probable_home_pitcher_id: Mapped[int | None] = mapped_column(Integer)
+    probable_away_pitcher_id: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    roof_status: Mapped[str | None] = mapped_column(String(16))
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ProjectedLineup(Base):
+    __tablename__ = "projected_lineups"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    game_pk: Mapped[int] = mapped_column(
+        Integer, ForeignKey("daily_schedule.game_pk", ondelete="CASCADE"), nullable=False
+    )
+    team_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    batter_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    batting_order: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    is_confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class WeatherForecast(Base):
+    __tablename__ = "weather_forecasts"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    park_id: Mapped[int] = mapped_column(Integer, ForeignKey("parks.park_id"), nullable=False)
+    forecast_for_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    temperature_f: Mapped[float | None] = mapped_column(Float)
+    feels_like_f: Mapped[float | None] = mapped_column(Float)
+    humidity_pct: Mapped[float | None] = mapped_column(Float)
+    pressure_hpa: Mapped[float | None] = mapped_column(Float)
+    wind_speed_mph: Mapped[float | None] = mapped_column(Float)
+    wind_direction_deg: Mapped[float | None] = mapped_column(Float)
+    precipitation_pct: Mapped[float | None] = mapped_column(Float)
+    cloud_cover_pct: Mapped[float | None] = mapped_column(Float)
+
+
+class ParkFactor(Base):
+    __tablename__ = "park_factors"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    park_id: Mapped[int] = mapped_column(Integer, ForeignKey("parks.park_id"), nullable=False)
+    season: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    batter_handedness: Mapped[str] = mapped_column(String(1), nullable=False)
+    metric: Mapped[str] = mapped_column(String(16), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    sample_size: Mapped[int | None] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
