@@ -17,6 +17,7 @@ import requests
 
 from src.ingestion.wire_models import (
     BoxscoreResponse,
+    FeedLiveResponse,
     ScheduleGameWithProbables,
     ScheduleResponse,
     ScheduleWithProbablesResponse,
@@ -135,14 +136,11 @@ def fetch_game_content(game_pk: int) -> str | None:
     probe both and return the first non-empty value.
     """
     payload = _get(f"/game/{game_pk}/feed/live", {}, base_url=_BASE_URL_V1_1)
-    game_data = payload.get("gameData") or {}
-    weather = game_data.get("weather") or {}
-    cond = (weather.get("condition") or "").strip().lower()
+    parsed = FeedLiveResponse.model_validate(payload)
+    cond = (parsed.game_data.weather.condition or "").strip().lower()
     if cond in {"roof closed", "dome"}:
         return "closed"
-    if cond in {"roof open"}:
+    if cond == "roof open":
         return "open"
-    # Fallback: venue-level roof flag (rarely populated for fixed parks).
-    venue = game_data.get("venue") or {}
-    roof_type = (venue.get("roofType") or "").strip().lower() or None
-    return roof_type
+    roof = (parsed.game_data.venue.roof_type or "").strip().lower() or None
+    return roof

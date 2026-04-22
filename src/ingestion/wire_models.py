@@ -308,3 +308,37 @@ class OpenMeteoForecastResponse(BaseModel):
     longitude: float
     timezone: str | None = None
     hourly: OpenMeteoHourly = Field(default_factory=OpenMeteoHourly)
+
+
+# -------- Feed/live (game content) --------
+
+
+class FeedLiveWeather(BaseModel):
+    """Subset of `gameData.weather` from `/api/v1.1/game/{pk}/feed/live`."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    condition: str | None = None
+
+
+class FeedLiveVenue(BaseModel):
+    """Subset of `gameData.venue` from `/api/v1.1/game/{pk}/feed/live`."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    roof_type: str | None = Field(default=None, alias="roofType")
+
+
+class FeedLiveGameData(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    weather: FeedLiveWeather = Field(default_factory=FeedLiveWeather)
+    venue: FeedLiveVenue = Field(default_factory=FeedLiveVenue)
+
+
+class FeedLiveResponse(BaseModel):
+    """Root of `/api/v1.1/game/{pk}/feed/live` (only the subset we consume)."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    game_data: FeedLiveGameData = Field(default_factory=FeedLiveGameData, alias="gameData")

@@ -117,3 +117,26 @@ def test_openmeteo_forecast_parses_hourly_arrays() -> None:
     assert len(f.hourly.time) == 2
     assert f.hourly.temperature_2m == [18.5, 17.2]
     assert f.hourly.wind_direction_10m == [270.0, 265.0]
+
+
+def test_feed_live_response_parses_weather_and_venue_roof() -> None:
+    from src.ingestion.wire_models import FeedLiveResponse
+
+    raw = {
+        "gameData": {
+            "weather": {"condition": "Roof Closed", "temp": "72", "wind": "0 mph, Calm"},
+            "venue": {"id": 15, "name": "Chase Field", "roofType": "Retractable"},
+            "datetime": {"dateTime": "2026-04-22T23:10:00Z"},  # extra ignored
+        }
+    }
+    parsed = FeedLiveResponse.model_validate(raw)
+    assert parsed.game_data.weather.condition == "Roof Closed"
+    assert parsed.game_data.venue.roof_type == "Retractable"
+
+
+def test_feed_live_response_tolerates_missing_subtrees() -> None:
+    from src.ingestion.wire_models import FeedLiveResponse
+
+    parsed = FeedLiveResponse.model_validate({})
+    assert parsed.game_data.weather.condition is None
+    assert parsed.game_data.venue.roof_type is None
