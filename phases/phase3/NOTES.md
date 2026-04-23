@@ -94,3 +94,79 @@ a baseline.
 **Phase 4+ refinement:** precompute a `pitcher_role_by_team_season`
 table (pitcher_id, team, season, role ∈ {starter, reliever}) and
 replace bullpen_sql with a team-specific join.
+
+---
+
+## Task 12 — Phase 3 closeout
+
+### Backfill performance
+
+- Per-game build: 22s (baseline) → 2.9s after Task-12B day-batched refactor
+- Full 2021–2026 backfill: **12.01 hours wall time**, 668,334 rows (see `reports/phase3_backfill.log` for per-day JSON progress)
+- Resume semantics: the builder's upsert is idempotent; if a backfill crashes partway, re-running with the same date range produces the same final state
+
+### Park-factor gap fixed mid-close
+
+After the backfill completed, ~97% of historical rows had NULL
+`park_hr_factor_hand` because Phase 2's `park_factors` table was only
+seeded for `season = 2026`. Fix applied in-phase:
+
+1. Ran `refresh_park_factors(season)` for 2021, 2022, 2023, 2024, 2025
+   (~0.8s per season; ~900 rows per season × 5 seasons)
+2. Targeted UPDATE on `matchup_features` using a `matchup_stand` TEMP
+   TABLE (per-matchup batter stand via `MODE() WITHIN GROUP`). Populated
+   rate jumped **2.7% → 90%**.
+3. Remaining 10% NULL: switch-hitter matchups where `MODE() = 'S'`
+   (Savant park factors are L/R only, no 'S' handedness column) and
+   exhibition venues not in Savant's leaderboard (Steinbrenner Field,
+   Sutter Health, spring training).
+
+If future phases want to fill the 'S' and exhibition gap: fall back to
+a handedness-neutral park factor (average L+R) or to league-average.
+Not blocking for Phase 4 — XGBoost handles NULLs natively.
+
+### Physics threshold drift
+
+PROMPT.md's sanity-check thresholds for air density (0.96 at 95°F/60%,
+1.07 at 40°F/40%) were eyeball approximations; the exact
+Magnus-corrected formula per PROMPT § 3 produces 0.923 and 1.036. The
+unit tests in `tests/features/test_weather_physics.py` assert the
+formula's actual output, not the approximate PROMPT values. Physics
+wins over rule-of-thumb — documented here so it doesn't look like a
+test was loosened.
+
+### Historical weather gap
+
+No historical `matchup_features` rows have `wx_*` populated. Phase 2's
+`weather_forecasts` table only stores today/future forecasts from
+Open-Meteo's `/v1/forecast` endpoint. Retroactive fill would require
+ingesting Open-Meteo's `/v1/archive` endpoint. Not done — deferred as
+a Phase 4+ improvement if the feature-importance analysis shows
+weather matters.
+
+### Historical lineup gap
+
+`ctx_batting_order` and `ctx_projected_pa` are NULL for historical
+rows — `projected_lineups` starts from Phase 2 onward. Impact:
+`p_tto_penalty` (which depends on projected_pa_count) is NULL for
+historical. Retroactive fill would require inferring lineups from
+`statcast_pitches.at_bat_number` ordering per game, which is
+tractable but wasn't needed to unblock Phase 3.
+
+### Known NULL columns by design
+
+- `b_pulled_fb_pct_{7d,14d,30d,season}` — batter_rolling emits NULL
+  literals. Requires `hc_x` / `hc_y` plus batter-handedness-aware pull
+  zones. Slot reserved; implementation deferred.
+
+### Stray test-fixture rows
+
+Tests in `tests/features/test_leakage.py` and
+`tests/features/test_builder_smoke.py` seed synthetic rows against the
+dev DB via the shared `seeded_parks_teams` / `leakage_setup` fixtures.
+Game_pk 888003 and 888004 are synthetic; the backfill's upsert
+overwrote their "real" dates (2024-07-04 is a valid game date) but
+the synthetic game_pks persist. Harmless — they're not referenced by
+any real game and can be deleted via
+`DELETE FROM matchup_features WHERE game_pk IN (888003, 888004)` any
+time.

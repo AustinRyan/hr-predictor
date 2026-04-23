@@ -1,9 +1,9 @@
 # HR Predictor — Abstract
 
-**Updated:** 2026-04-22 — end of Phase 2
+**Updated:** 2026-04-23 — end of Phase 3
 
 ## Current phase
-**Phase 3 — Feature engineering** — not started.
+**Phase 4 — Baseline model + evaluation framework** — not started.
 
 ## Project elevator pitch
 Per-game MLB home-run probability predictor for prop-betting decision support. Local-first Python/Next.js stack. Trained on Statcast 2021–present. Calibration-first evaluation (Brier, ECE, reliability curves). Phased development; context clears between phases.
@@ -12,7 +12,7 @@ Per-game MLB home-run probability predictor for prop-betting decision support. L
 - [x] Phase 0 — Scaffolding (tag: `phase-0-complete`)
 - [x] Phase 1 — Historical Statcast backfill (tag: `phase-1-complete`)
 - [x] Phase 2 — Daily operational ingestion (tag: `phase-2-complete`)
-- [ ] Phase 3 — Feature engineering
+- [x] Phase 3 — Feature engineering (tag: `phase-3-complete`)
 - [ ] Phase 4 — Baseline model + evaluation framework
 - [ ] Phase 5 — Calibration + per-game rollup
 - [ ] Phase 6 — FastAPI backend
@@ -65,5 +65,31 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **Park-factor freshness guard doesn't invalidate on code changes.** `daily_runner` skips `refresh_park_factors` when `ParkFactor.updated_at` is <7 days old, so a schema/query change (like the `rolling=1` → 3-year rolling flip in Phase 2) requires a one-off manual refresh. Low-priority Phase 3 follow-up.
 - **Non-primary exhibition venues have NULL coords** (Walmart Park, Estadio Quisqueya, Estadio Alfredo Harp Helu). StatsAPI doesn't publish coords for these — weather ingestion correctly skips them with a warning. Primary 30 MLB parks + Steinbrenner + Sutter Health all have coords.
 
+### Phase 3 decisions
+- **Migration `0004_feature_store`** (PROMPT said `0003`; collided with Phase 2's `0003_operational_tables`). Creates `matchup_features` as a **table** (not a materialized view) partitioned yearly by `game_date`, 129 columns, composite PK `(game_date, game_pk, batter_id, pitcher_id)`. 4 indexes: batter_date, pitcher_date, game_pk, historical (partial).
+- **Feature modules produce SQL CTE generators**, not row computation — pure functions returning CTE SELECT bodies. `src/features/builder.py` composes them into one `WITH ... INSERT ... ON CONFLICT DO UPDATE`.
+- **Rolling windows computed ON-THE-FLY via CTEs**, not pre-materialized. MV is a Phase 4+ perf option if needed.
+- **Day-batched builder** (Task 12B refactor): one composed SQL per day handles all games of that day; `_finalize_row` pre-fetches park factors + days-rest into per-day caches. 22s/game → 2.9s/game, ~8× speedup. Bullpen CTE runs as a separate query with deduplicated `(pitcher_id, ref_date)` keys because its cross-product shape made it a hotspot inside the composed query.
+- **Backfill ran in 12.01 hours** against local Docker Postgres (2026-04-22 overnight). 668,100 historical rows across 2021–2026. See `reports/phase3_backfill.log` for per-day JSON progress. Resume is idempotent via upsert.
+- **Park-factor backfill mid-close**: Phase 2 had only seeded `park_factors` for season=2026. After the Phase 3 matchup_features backfill completed, ran `refresh_park_factors(season)` for 2021–2025, then did a targeted UPDATE on matchup_features using a `matchup_stand` temp table (batter hand via `MODE() WITHIN GROUP`). `park_hr_factor_hand` populated rate jumped 2.7% → 90%. Remaining 10% NULL is switch-hitter matchups (Savant publishes L/R only) and exhibition venues (Steinbrenner, Sutter Health, spring training).
+- **Physics formulas are exact** (Magnus-corrected ideal gas). PROMPT's sanity-check values (0.96 at 95°F/60%, 1.07 at 40°F/40%) were eyeball approximations; the formula actually produces 0.923 and 1.036. Unit tests assert the formula output. Noted in `phases/phase3/NOTES.md`.
+- **Leakage guaranteed** by strict `<` on `reference_date` in every aggregate FILTER. Regex test on each generator + end-to-end `tests/features/test_leakage.py` that seeds a clobber on the target date and asserts it's excluded.
+- **Known Phase 3 gaps (all deferred to later phases):**
+  - `wx_*` NULL for historical rows — Phase 2 only forecasts today/future. Phase 4+ can ingest Open-Meteo `/v1/archive`.
+  - `ctx_batting_order` / `ctx_projected_pa` NULL for historical — `projected_lineups` started in Phase 2. Could infer from `at_bat_number` ordering if needed.
+  - `b_pulled_fb_pct_*` — batter_rolling emits NULL literals; needs hc_x/hc_y + handedness pull zones.
+  - Bullpen is league-wide-minus-starter, not team-specific. Phase 4+ pitcher-role table would refine.
+  - HR/9 uses `HR_count / PA_count * 38.7` proxy (9 innings × 4.3 PAs/inning) because `statcast_pitches` doesn't track outs-per-PA directly.
+
+## Open questions / decisions pending
+- None blocking Phase 4.
+
+## Open bugs / technical debt
+- **`launch_speed` null-rate threshold in Phase 1 PROMPT is misframed.** (Carried from Phase 2.) Phase 3 feature-engineering now handles this correctly via ball-in-play-conditional FILTERs.
+- **`bat_speed` has ~19% coverage in 2023**, ~42-44% for 2024+. Batter-tracking features in Phase 3 emit natural NULL for pre-2024 swings.
+- **Park-factor freshness guard doesn't invalidate on code changes.** (Carried from Phase 2.) `daily_runner` skips refresh when rows <7 days old.
+- **Synthetic test-fixture rows in `matchup_features`** (game_pk 888003, 888004 from Task 11 leakage + smoke tests). Harmless — cleanable via `DELETE FROM matchup_features WHERE game_pk IN (888003, 888004)`.
+- **Full historical rebuild of `matchup_features` requires ~12 hours.** Day-batching already gets us an 8× speedup; next lever is a pre-materialized `batter_rolling_mv` (Phase 4+ perf option).
+
 ## Next action
-Execute Phase 3 prompt at `phases/phase3/PROMPT.md` after clearing context.
+Execute Phase 4 prompt at `phases/phase4/PROMPT.md` after clearing context.
