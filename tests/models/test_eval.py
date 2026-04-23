@@ -195,3 +195,89 @@ def test_naive_baseline_matches_log_loss_of_constant() -> None:
     direct = naive_baseline_log_loss(y_true, rate)
     indirect = log_loss(y_true, np.full_like(y_true, rate, dtype=float))
     assert direct == pytest.approx(indirect, abs=1e-10)
+
+
+# ---------- plot functions (smoke) ----------
+
+
+def test_plot_reliability_writes_png(tmp_path) -> None:
+    from src.models.eval import plot_reliability
+
+    curves = {
+        "train": ReliabilityCurve(
+            mean_pred=[0.05, 0.15, 0.5],
+            actual_rate=[0.02, 0.18, 0.45],
+            counts=[100, 50, 10],
+        ),
+        "test": ReliabilityCurve(
+            mean_pred=[0.08, 0.2, 0.6],
+            actual_rate=[0.05, 0.22, 0.55],
+            counts=[80, 40, 5],
+        ),
+    }
+    out = tmp_path / "reliability.png"
+    plot_reliability(curves, out)
+    assert out.exists()
+    assert out.stat().st_size > 1000  # non-trivial PNG
+
+
+def test_plot_feature_importance_writes_png(tmp_path) -> None:
+    import xgboost
+    from src.models.eval import plot_feature_importance
+
+    # Train a trivial model on random data so we have importances.
+    X = np.random.rand(100, 5)
+    y = (X[:, 0] > 0.5).astype(int)
+    dmat = xgboost.DMatrix(X, label=y, feature_names=["f0", "f1", "f2", "f3", "f4"])
+    model = xgboost.train({"objective": "binary:logistic", "verbosity": 0}, dmat, num_boost_round=5)
+    out = tmp_path / "importance.png"
+    plot_feature_importance(model, ["f0", "f1", "f2", "f3", "f4"], out, top_n=5)
+    assert out.exists()
+    assert out.stat().st_size > 1000
+
+
+def test_plot_feature_importance_handles_fewer_features_than_top_n(tmp_path) -> None:
+    import xgboost
+    from src.models.eval import plot_feature_importance
+
+    X = np.random.rand(100, 3)
+    y = (X[:, 0] > 0.5).astype(int)
+    dmat = xgboost.DMatrix(X, label=y, feature_names=["a", "b", "c"])
+    model = xgboost.train({"objective": "binary:logistic", "verbosity": 0}, dmat, num_boost_round=3)
+    out = tmp_path / "importance_small.png"
+    plot_feature_importance(model, ["a", "b", "c"], out, top_n=100)  # more than features
+    assert out.exists()
+
+
+def test_plot_prediction_histogram_writes_png(tmp_path) -> None:
+    from src.models.eval import plot_prediction_histogram
+
+    preds = {
+        "train": np.random.beta(2, 20, size=1000),
+        "test": np.random.beta(2, 20, size=500),
+    }
+    out = tmp_path / "hist.png"
+    plot_prediction_histogram(preds, out)
+    assert out.exists()
+
+
+def test_plot_shap_summary_writes_png(tmp_path) -> None:
+    import pandas as pd
+    import xgboost
+    from src.models.eval import plot_shap_summary
+
+    # Use Booster (native XGBoost API) rather than sklearn wrapper to avoid
+    # SHAP compatibility issues with XGBClassifier's internal representation
+    rng = np.random.default_rng(42)
+    X_data = rng.random((200, 5))
+    y_data = (X_data[:, 0] > 0.5).astype(int)
+    X = pd.DataFrame(X_data, columns=[f"f{i}" for i in range(5)])
+
+    dmat = xgboost.DMatrix(X_data, label=y_data, feature_names=[f"f{i}" for i in range(5)])
+    model = xgboost.train(
+        {"objective": "binary:logistic", "verbosity": 0}, dmat, num_boost_round=10
+    )
+    out = tmp_path / "shap.png"
+    plot_shap_summary(model, X, out, max_display=5)
+    assert out.exists()
+    assert out.stat().st_size > 1000
