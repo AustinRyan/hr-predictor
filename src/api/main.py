@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from src.api.errors import register_error_handlers
 from src.api.routers import health as health_router
 from src.api.routers import picks as picks_router
+from src.api.routers import player as player_router
 from src.core.logging_config import configure_logging
 from src.models.artifacts import load_model
 from src.models.calibrate import load_calibrator
@@ -65,6 +66,7 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     app.include_router(health_router.router)
     app.include_router(picks_router.router)
+    app.include_router(player_router.router)
     return app
 
 
