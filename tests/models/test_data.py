@@ -25,6 +25,10 @@ def test_feature_columns_excludes_keys_and_label() -> None:
         "built_at",
         "p_primary_pitch",
         "ctx_day_night",
+        # Diagnostic exclusion (post-Phase 6): rest-day features were
+        # dominating SHAP and crowding out real pitcher-quality signal.
+        "ctx_pitcher_days_rest",
+        "ctx_batter_days_rest",
     }
     for c in excluded:
         assert c not in FEATURE_COLUMNS, f"{c} should not be in FEATURE_COLUMNS"

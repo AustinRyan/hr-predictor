@@ -62,6 +62,19 @@ _EXCLUDED_COLUMNS: frozenset[str] = frozenset(
         # String columns requiring encoding we're not doing yet.
         "p_primary_pitch",
         "ctx_day_night",
+        # Diagnostic exclusion (post-Phase 6): the Phase 4 XGBoost was
+        # overweighting pitcher/batter ``days_rest`` as a dominant
+        # feature on daily inference — every top-probability matchup on
+        # 2026-04-23 had ``ctx_pitcher_days_rest`` as its #1 SHAP
+        # contribution (+0.38 on raw probs), crowding out the actual
+        # pitcher-quality signals (``p_hr_per_9``,
+        # ``p_barrel_pct_allowed``, handedness splits, etc.). Dropping
+        # both rest features here forces the model to lean on
+        # legitimate pitcher/batter skill features and lets us compare
+        # calibration + rankings against the production model without
+        # changing the PRODUCTION pointer.
+        "ctx_pitcher_days_rest",
+        "ctx_batter_days_rest",
     }
 )
 
