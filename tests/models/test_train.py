@@ -19,7 +19,7 @@ def test_training_config_defaults() -> None:
     assert cfg.max_depth == 6
     assert cfg.learning_rate == 0.05
     assert cfg.random_seed == 42
-    assert cfg.scale_pos_weight is None  # auto-compute
+    assert cfg.scale_pos_weight == 1.0  # calibration-first default
 
 
 def _make_frame(n_rows: int, seed: int = 0, hr_rate: float = 0.05) -> FeatureFrame:

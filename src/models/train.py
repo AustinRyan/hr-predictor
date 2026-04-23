@@ -16,9 +16,12 @@ Design notes:
 * **xgboost 2.x breaking change**: ``early_stopping_rounds`` and
   ``eval_metric`` are now constructor args, not ``fit()`` args. The
   ``fit()`` signature was narrowed in 2.0.
-* **scale_pos_weight=None** means auto-compute from training-set class
-  imbalance: ``n_negatives / n_positives``. The HR-per-PA rate is ~3%,
-  so this lands around 30.
+* **scale_pos_weight=1.0** is the default because Phase 4 is
+  calibration-first: log loss and Brier are proper scoring rules that
+  heavily penalize miscalibration, so inflating positive-class weight
+  to ``n_neg/n_pos`` (≈20 for our HR rate) — while correct for pure
+  AUC-optimized ranking — wrecks probability calibration. A ranking
+  variant can be built later by passing ``scale_pos_weight`` explicitly.
 * **Seeding**: ``random_seed`` flows to python ``random``, ``numpy``,
   and XGBoost's ``random_state``. Two runs with identical config and
   data produce identical artifacts.
@@ -42,7 +45,7 @@ from typing import Any, Literal
 
 import numpy as np
 import xgboost
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.engine import Engine
 
 from src.core.db import get_engine
@@ -87,7 +90,17 @@ class TrainingConfig(BaseModel):
     reg_lambda: float = 1.0
     early_stopping_rounds: int = 50
     random_seed: int = 42
-    scale_pos_weight: float | None = None
+    scale_pos_weight: float = Field(
+        default=1.0,
+        description=(
+            "XGBoost positive-class weight. Default 1.0 (unweighted) — correct "
+            "for probability-calibrated objectives (log loss, Brier). Explicitly "
+            "set to n_neg/n_pos (~20 for our HR rate) ONLY if optimizing pure "
+            "ranking (AUC) and calibration is handled downstream by isotonic "
+            "regression. Phase 4's design is calibration-first, so 1.0 is the "
+            "right default."
+        ),
+    )
     top_k_per_day: int = 20  # precision_at_top_k's k
 
 
@@ -170,13 +183,8 @@ def train_baseline(
         },
     )
 
-    # Auto-compute scale_pos_weight from training-set class imbalance
-    # unless explicitly overridden.
     spw = config.scale_pos_weight
-    if spw is None:
-        n_pos = int(train.y.sum())
-        n_neg = len(train.y) - n_pos
-        spw = n_neg / n_pos if n_pos > 0 else 1.0
+    _log.info("using scale_pos_weight", extra={"spw": spw})
 
     # Fit XGBoost. Note: early_stopping_rounds and eval_metric are
     # constructor args in xgboost 2.x, not fit() kwargs.

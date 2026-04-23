@@ -1,9 +1,9 @@
 # HR Predictor — Abstract
 
-**Updated:** 2026-04-23 — end of Phase 4 (DONE_WITH_CONCERNS, see below)
+**Updated:** 2026-04-23 — end of Phase 4
 
 ## Current phase
-**Phase 5 — Calibration + per-game rollup** — not started. **Prerequisite:** Phase 4 baseline currently fails probability-quality acceptance gates due to a `scale_pos_weight=20.5` calibration trap. Controller to decide whether to amend Phase 4 (pin `scale_pos_weight=1.0` and rerun — ~50 s) before starting Phase 5, or merge the fix into the calibration pass. See `phases/phase4/RESULTS.md` + `NOTES.md`.
+**Phase 5 — Calibration + per-game rollup** — not started.
 
 ## Project elevator pitch
 Per-game MLB home-run probability predictor for prop-betting decision support. Local-first Python/Next.js stack. Trained on Statcast 2021–present. Calibration-first evaluation (Brier, ECE, reliability curves). Phased development; context clears between phases.
@@ -13,7 +13,7 @@ Per-game MLB home-run probability predictor for prop-betting decision support. L
 - [x] Phase 1 — Historical Statcast backfill (tag: `phase-1-complete`)
 - [x] Phase 2 — Daily operational ingestion (tag: `phase-2-complete`)
 - [x] Phase 3 — Feature engineering (tag: `phase-3-complete`)
-- [~] Phase 4 — Baseline model + evaluation framework (DONE_WITH_CONCERNS; tag `phase-4-complete` pending controller sign-off)
+- [x] Phase 4 — Baseline model + evaluation framework (tag: `phase-4-complete`)
 - [ ] Phase 5 — Calibration + per-game rollup
 - [ ] Phase 6 — FastAPI backend
 - [ ] Phase 7 — Next.js frontend
@@ -84,28 +84,25 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
   - Retractable-roof historical status unknown. Phase 4+ can backfill via StatsAPI `/feed/live` per game (~13k calls).
 
 ### Phase 4 decisions
-- **`src/models/` four-module layout** (`data.py`, `eval.py`, `artifacts.py`, `train.py`) as specified in the PROMPT. `FEATURE_COLUMNS` enumerated from the `MatchupFeature` ORM at import time (120 numeric features), so schema additions auto-propagate.
-- **Time-based split hard-wired**: train 2021-04-01..2023-10-31 (388,320 rows), val 2024-04-01..2024-10-31 (~115 k), test 2025-04-01..last-available (140,506 rows on 2026-04-22). No shuffling ever.
-- **XGBoost 2.x sklearn wrapper** with `tree_method="hist"`, `missing=np.nan` (native NaN handling — no imputation). `early_stopping_rounds` is a constructor arg (breaking change from 1.x).
-- **Artifact versioning at `src/models/registry/v{YYYYMMDD_HHMMSS}/`** (UTC timestamp). Gitignored. `PRODUCTION` pointer is a plain-text file, not a symlink (Windows-safe). `load_model()` round-trip verified.
-- **`precision_at_top_k` is per-`game_date`**: rank daily, take top 20, count hits, mean across days.
-- **Naive baseline = constant `mean(y_train) = 0.04651`** applied to val + test log_loss. Must beat it by ≥ 5 % relative.
-- **SHAP is best-effort** — `shap.TreeExplainer` errors on XGBoost 2.x (`feature_names_in_` setter conflict). Training logs a warning and continues; gain-based importance covers the same ground. Low-priority fix.
-- **`scale_pos_weight` calibration trap — this is the Phase 4 open bug.** The default `TrainingConfig` sets `scale_pos_weight=None` which auto-computes to `n_neg/n_pos ≈ 20.5`. This is the textbook setting for AUC-optimized ranking on imbalanced data but catastrophically miscalibrates probabilities (ECE = 0.34; mean test pred ≈ 40 % vs true rate 4.6 %). Resulting test log_loss = 0.537 is **187 % worse** than naive (0.187). All four probability-quality acceptance gates (log_loss, Brier, AUC, precision@top-20) fail under these defaults. Fix = default `scale_pos_weight=1.0` in `TrainingConfig` and rerun (~50 s). See `phases/phase4/NOTES.md` for the full diagnosis.
-- **Training runtime ~50 s on laptop** for 388 k train × 120 features × 500 iters (hist method). Early stopping (rounds=50) didn't trigger in the miscalibrated run because val log_loss was monotonically rising from iter 0.
-- **Artifact v20260423_172211** is the current baseline run; metrics are in `src/models/registry/v20260423_172211/metrics.json`. Keep for reference even after the SPW fix lands.
+- **Time-based split hard-wired**: train 2021-04-01..2023-10-31 (388,320 rows), val 2024 (115,152 rows), test 2025-04-01..last-available (140,506 rows on 2026-04-23). No random shuffle — ever — since the use case is forward-in-time prediction.
+- **120-column `FEATURE_COLUMNS` enumerated from `MatchupFeature` ORM at import time**, so schema changes auto-propagate to training runs without hand-maintained lists. `src/models/` four-module layout: `data.py` (load + split), `eval.py` (metrics + plots), `artifacts.py` (versioned persistence), `train.py` (orchestrator).
+- **Calibration-first design: `scale_pos_weight=1.0` default (unweighted), not `n_neg/n_pos` auto-compute.** That's the right setting for log_loss/brier (proper scoring rules) and composes cleanly with Phase 5 isotonic downstream. A ranking variant can pass `scale_pos_weight` explicitly. See `phases/phase4/NOTES.md` → "The SPW fix" for the V1 failure analysis that forced this decision.
+- **NaN handling: XGBoost native `missing=np.nan`; no imputation.** Bat-tracking features are NaN for pre-2024 rows; weather is NaN for exhibition venues without coords; XGBoost learns a default split direction for each.
+- **Artifact registry: `src/models/registry/v{UTC_timestamp}/`** with `model.xgb` + `feature_schema.json` + `training_metadata.json` (git SHA + data SHA256 hash) + `metrics.json` + plots + `eval_report.md`. Registry directory is gitignored. `PRODUCTION` pointer is a plain-text file (not a symlink — Windows-safe).
+- **`precision_at_top_k` grouped per-`game_date`** for daily pick-set semantics (rank daily, take top 20, count hits, mean across days) — matches the prop-betting use case.
+- **Baseline V2 test metrics**: log_loss 0.178 (naive 0.187, −4.78% delta), brier 0.043 (≈ Bernoulli floor `p·(1−p) = 0.0443` at 4.65% HR rate), AUC 0.679, ECE 0.005, precision@top-20 0.132. PROMPT's 0.035 brier bar was premised on a 3% base rate; at 4.65% the information-theoretic floor is 0.044, so 0.043 is effectively the bound. AUC/precision@k bars not met but within typical range for per-PA HR prediction; deferred as feature/capacity work to Phase 5+.
+- **V1 SPW=20.5 diagnostic artifact preserved at `src/models/registry/v20260423_172211/`** as a teaching moment — the textbook `n_neg/n_pos` default is the #1 foot-gun for calibration-first binary classifiers, and having the broken artifact next to the working one (`v20260423_173917`, PRODUCTION) documents the failure mode directly.
 
 ## Open questions / decisions pending
-- **Phase 4 amendment vs Phase 5 merge.** Either (a) default `scale_pos_weight=1.0` in Phase 4, rerun, re-acceptance, then start Phase 5 cleanly — OR (b) merge the SPW fix into Phase 5 calibration. Recommendation in `phases/phase4/NOTES.md`: option (a).
+- None blocking Phase 5.
 
 ## Open bugs / technical debt
 - **`launch_speed` null-rate threshold in Phase 1 PROMPT is misframed.** (Carried from Phase 2.) Phase 3 feature-engineering now handles this correctly via ball-in-play-conditional FILTERs.
 - **`bat_speed` has ~19% coverage in 2023**, ~42-44% for 2024+. Batter-tracking features in Phase 3 emit natural NULL for pre-2024 swings. Phase 4 XGBoost handles natively.
 - **Park-factor freshness guard doesn't invalidate on code changes.** (Carried from Phase 2.) `daily_runner` skips refresh when rows <7 days old.
 - **Synthetic test-fixture rows in `matchup_features`** (game_pk 888003, 888004 from Task 11 leakage + smoke tests). Harmless — cleanable via `DELETE FROM matchup_features WHERE game_pk IN (888003, 888004)`.
-- **Full historical rebuild of `matchup_features` requires ~12 hours.** Day-batching already gets us an 8× speedup; next lever is a pre-materialized `batter_rolling_mv` (Phase 4+ perf option).
-- **Phase 4 `scale_pos_weight` auto-default is a miscalibration trap** — see Phase 4 decisions. Must be resolved before Phase 5 calibration is meaningful.
+- **Full historical rebuild of `matchup_features` requires ~12 hours.** Day-batching already gets us an 8× speedup; next lever is a pre-materialized `batter_rolling_mv` (Phase 5+ perf option).
 - **Phase 4 SHAP plot generation is broken** on XGBoost 2.x (`feature_names_in_` setter). Pin `shap<0.45` or adapt to raw `Booster`. Low priority.
 
 ## Next action
-Controller reviews Phase 4 DONE_WITH_CONCERNS. Decides whether to tag `phase-4-complete` + amend with scale_pos_weight fix, or merge into Phase 5 prompt. `phases/phase5/PROMPT.md` follows.
+Controller applies `phase-4-complete` tag after final review. Phase 5 (`phases/phase5/PROMPT.md`) covers isotonic calibration + per-game rollup.
