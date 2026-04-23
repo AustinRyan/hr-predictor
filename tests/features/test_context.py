@@ -146,3 +146,85 @@ def test_days_since_last_game_strict_prior(test_engine: Engine, clean_tables) ->
 
         # Reference = 2024-07-04; prior game was 2024-06-30. Delta = 4 days.
         assert days_since_last_game(555503, date(2024, 7, 4), s) == 4
+
+
+@pytest.mark.integration
+def test_batting_order_backfill_infers_slots(test_engine: Engine, clean_tables) -> None:
+    """Seed 3 pitches for 3 distinct batters on a single team-side
+    (inning_topbot='Top') with distinct at_bat_numbers, verify the
+    backfill script assigns slots 1/2/3 in first-PA order."""
+    from sqlalchemy.orm import sessionmaker
+
+    session_factory = sessionmaker(bind=test_engine, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        s.execute(
+            text("INSERT INTO parks (park_id, name) VALUES (99701, 'tp') ON CONFLICT DO NOTHING")
+        )
+        # Seed 3 batters across 3 at-bats in a single game.
+        for ab_num, batter_id in [(1, 997001), (2, 997002), (3, 997003)]:
+            s.execute(
+                text(
+                    "INSERT INTO statcast_pitches "
+                    "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, "
+                    " inning_topbot, events, stand) "
+                    "VALUES ('2024-06-01', 9970001, :ab, 1, :b, 997100, 'Top', 'single', 'R')"
+                ),
+                {"ab": ab_num, "b": batter_id},
+            )
+        # Seed matching matchup_features rows.
+        for batter_id in [997001, 997002, 997003]:
+            s.execute(
+                text(
+                    "INSERT INTO matchup_features "
+                    "(game_date, game_pk, batter_id, pitcher_id, is_historical, park_id) "
+                    "VALUES ('2024-06-01', 9970001, :b, 997100, TRUE, 99701)"
+                ),
+                {"b": batter_id},
+            )
+        s.commit()
+
+    # Replicate the UPDATE in-test to avoid harness plumbing (script uses prod engine).
+    from phases.phase3.batting_order_backfill import _pa_case_sql, _tto_case_sql
+
+    with session_factory() as s:
+        s.execute(text(f"""
+            WITH per_batter_first_ab AS (
+                SELECT sp.game_pk, sp.inning_topbot, sp.batter, MIN(sp.at_bat_number) AS first_ab
+                FROM statcast_pitches sp
+                WHERE sp.inning_topbot IS NOT NULL
+                GROUP BY sp.game_pk, sp.inning_topbot, sp.batter
+            ),
+            ranked AS (
+                SELECT pb.game_pk, pb.batter AS batter_id,
+                       ROW_NUMBER() OVER (PARTITION BY pb.game_pk, pb.inning_topbot ORDER BY pb.first_ab)::int AS slot
+                FROM per_batter_first_ab pb
+            )
+            UPDATE matchup_features mf
+            SET ctx_batting_order = r.slot,
+                ctx_projected_pa = {_pa_case_sql()},
+                p_tto_penalty = {_tto_case_sql()}
+            FROM ranked r
+            WHERE mf.game_pk = r.game_pk AND mf.batter_id = r.batter_id
+              AND mf.is_historical AND r.slot <= 9
+        """))
+        s.commit()
+        rows = (
+            s.execute(
+                text(
+                    "SELECT batter_id, ctx_batting_order, ctx_projected_pa, p_tto_penalty "
+                    "FROM matchup_features WHERE game_pk = 9970001 ORDER BY batter_id"
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+    # Batters were inserted in at-bat order 1/2/3 -> slots 1/2/3.
+    assert rows[0]["ctx_batting_order"] == 1
+    assert rows[1]["ctx_batting_order"] == 2
+    assert rows[2]["ctx_batting_order"] == 3
+    assert rows[0]["ctx_projected_pa"] == pytest.approx(4.60, abs=0.001)
+    assert rows[2]["ctx_projected_pa"] == pytest.approx(4.40, abs=0.001)
+    # p_tto_penalty is the same ~1.083 for all slots 1-9 (first 3 PAs
+    # dominate the weighted average, PA 4+ is bullpen).
+    assert rows[0]["p_tto_penalty"] == pytest.approx(1.0833, abs=0.005)
