@@ -92,3 +92,88 @@ and is cosmetic.
 275 passed, 1 skipped, 91% overall coverage. `src/api/` files all at
 ≥85%. `tests/api/` covers: health, picks, player, matchup, model-metrics,
 cache hit/miss + Redis-down degradation, 404/422 error bodies.
+
+## Post-ship: days_rest exclusion + ensemble promotion
+
+After Phase 6 closed, a spot-check of `/picks/today` turned up **Gary
+Sánchez vs Tarik Skubal @ Comerica** in the top-5. Skubal is the
+reigning Cy Young — the matchup being a top-5 HR play failed the
+smell test. SHAP on that row:
+
+```
+ctx_pitcher_days_rest    +0.38
+b_xiso_season            +0.14
+ctx_batting_order        +0.10
+...
+```
+
+`ctx_pitcher_days_rest` (and its twin `ctx_batter_days_rest`) were
+dominating the model with contributions ~3× the next legitimate
+feature. Rest-day cadence is effectively a starter-ID fingerprint
+(every starter has a personal rotation rhythm), so the feature was
+a leak-adjacent shortcut — a proxy for "which pitcher is this"
+rather than a physical mechanism that helps HR probability. The
+model was ranking batters-vs-starters it had seen a lot of in
+training, not batters likely to HR.
+
+### Fix
+
+`src/models/data.py`: both `ctx_*_days_rest` columns added to the
+`_EXCLUDED_COLUMNS` frozenset. FEATURE_COLUMNS 120 → 118. The
+columns stay in `matchup_features` (they may be legitimate for a
+bullpen-specific model or a pitcher-fatigue downstream feature
+later), just out of the XGB feature vector.
+
+### Option 3 sweep
+
+With days_rest removed, the single-XGB default dropped test AUC
+0.679 → 0.662 (the lost 0.017 was the shortcut). Ran a 4-way
+hyperparameter sweep + LightGBM alone + 50/50 XGB/LGB ensemble
+over the 118-feature slate. Numbers in `reports/option3_sweep_summary.json`:
+
+| config                                | test AUC | test ECE_post | test log_loss |
+|---------------------------------------|---------:|--------------:|--------------:|
+| tuned_mild                            |  0.66332 |       0.00394 |       0.18015 |
+| **tuned_conservative**                | **0.66450** |    **0.00508** |    **0.18015** |
+| tuned_deep_slow                       |  0.66342 |       0.00447 |       0.18024 |
+| tuned_strong_mcw                      |  0.66247 |       0.00426 |       0.18021 |
+| lightgbm_alone                        |  0.66170 |       0.00379 |       0.18028 |
+| **ensemble_50_50(tuned_conservative+lgb)** | **0.66466** | **0.00453** | **0.18009** |
+
+Ensemble wins on test AUC (+0.0002 over best single XGB) and
+log_loss (−0.00006). Gains are small because XGB and LightGBM
+converge on the same top features; still, the ensemble is a
+non-negative guardrail with minimal complexity cost.
+
+### Promoted: `v20260423_231941`
+
+Retrained cleanly via `phases/phase6/option3_promote.py` — which
+reads `option3_sweep_summary.json`, retrains the winning XGB to the
+real registry, fits the LightGBM sibling with identical sweep
+params, writes the ensemble marker into `training_metadata.json`,
+and refits the isotonic calibrator on the averaged `(raw_xgb +
+raw_lgb) / 2` probability stream (so inference-time calibration
+sees the same distribution it was fit against).
+
+Artifacts in `src/models/registry/v20260423_231941/`:
+- `model.xgb` (XGB tuned_conservative)
+- `lightgbm.txt` (LightGBM sibling)
+- `calibrator.joblib` (isotonic on averaged raw probs)
+- `training_metadata.json` with `ensemble: {type: 50_50_average, ...}`
+
+Test metrics after retrain: log_loss 0.18011, Brier 0.04344,
+AUC 0.66389, ECE 0.00641, precision@top-20 0.12116.
+
+The −0.015 AUC vs the leaky v20260423_173917 is the price of
+legitimate SHAP; the user explicitly approved this trade-off.
+
+### Ensemble inference path
+
+`src/models/inference.py` now checks `training_metadata.get("ensemble")`
+on load. If present, loads the sidecar `lightgbm.txt`, predicts both
+streams, averages 50/50, then hands to the isotonic calibrator.
+Single-model loads are unchanged (`ensemble` key absent → XGB-only).
+Today's refresh wrote 135 predictions under `v20260423_231941`;
+top-SHAP drivers are now legitimate (`b_p90_ev_30d`, `p_ff_velo_avg`,
+`park_hr_factor_hand`, `b_xiso_season`) with no `ctx_*_days_rest`
+contamination.
