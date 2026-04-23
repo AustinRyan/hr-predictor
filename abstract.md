@@ -1,9 +1,9 @@
 # HR Predictor — Abstract
 
-**Updated:** 2026-04-23 — end of Phase 4
+**Updated:** 2026-04-22 — end of Phase 5
 
 ## Current phase
-**Phase 5 — Calibration + per-game rollup** — not started.
+**Phase 6 — FastAPI backend** — not started.
 
 ## Project elevator pitch
 Per-game MLB home-run probability predictor for prop-betting decision support. Local-first Python/Next.js stack. Trained on Statcast 2021–present. Calibration-first evaluation (Brier, ECE, reliability curves). Phased development; context clears between phases.
@@ -14,7 +14,7 @@ Per-game MLB home-run probability predictor for prop-betting decision support. L
 - [x] Phase 2 — Daily operational ingestion (tag: `phase-2-complete`)
 - [x] Phase 3 — Feature engineering (tag: `phase-3-complete`)
 - [x] Phase 4 — Baseline model + evaluation framework (tag: `phase-4-complete`)
-- [ ] Phase 5 — Calibration + per-game rollup
+- [x] Phase 5 — Calibration + per-game rollup (tag: pending controller review)
 - [ ] Phase 6 — FastAPI backend
 - [ ] Phase 7 — Next.js frontend
 - [ ] Phase 8 — LangGraph explanation agent (optional)
@@ -93,8 +93,17 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **Baseline V2 test metrics**: log_loss 0.178 (naive 0.187, −4.78% delta), brier 0.043 (≈ Bernoulli floor `p·(1−p) = 0.0443` at 4.65% HR rate), AUC 0.679, ECE 0.005, precision@top-20 0.132. PROMPT's 0.035 brier bar was premised on a 3% base rate; at 4.65% the information-theoretic floor is 0.044, so 0.043 is effectively the bound. AUC/precision@k bars not met but within typical range for per-PA HR prediction; deferred as feature/capacity work to Phase 5+.
 - **V1 SPW=20.5 diagnostic artifact preserved at `src/models/registry/v20260423_172211/`** as a teaching moment — the textbook `n_neg/n_pos` default is the #1 foot-gun for calibration-first binary classifiers, and having the broken artifact next to the working one (`v20260423_173917`, PRODUCTION) documents the failure mode directly.
 
+### Phase 5 decisions
+- **Isotonic over Platt for post-hoc calibration.** Tree-ensemble score distributions are not logistic-shaped; Platt under-corrects. `sklearn.isotonic.IsotonicRegression(out_of_bounds="clip", y_min=0, y_max=1)` fit on the val slice, applied on the test slice. Test ECE **0.00555 → 0.00248** (−55%), log loss 0.17862 → 0.17849 (slightly improved, did not hurt). Bar was < 0.03; we're ~12× below it.
+- **Calibrator co-located with the model** at `src/models/registry/v{version}/calibrator.joblib`. Strictly additive — never overwrites `model.xgb` or training metadata. `load_calibrator(version)` + `load_model(version)` use the same string, so version-mixing bugs are a filesystem impossibility.
+- **Per-PA sequence uses single-inference + scalar adjustments** (`src/models/pa_sequence.py`), not per-PA feature-row regeneration. Regenerating rows would require swapping starter columns for bullpen columns in a way the model never saw during training (OOD). Instead: one Booster call per matchup, divide out `p_tto_penalty` to recover a "pure" per-PA prob, then re-apply TTO multipliers (1.00/1.05/1.20) for PAs 1-3 and a clipped bullpen ratio for PAs 4+. Faithful to training distribution; much cheaper (1 call vs. up to 6).
+- **Bullpen adjustment clipped to [0.5, 2.0]** to prevent outlier HR/9 ratios from producing physically-implausible per-PA probs. Pressly (0.37 HR/9) against a league bullpen (1.1 HR/9) would otherwise multiply PA4 by ~3.0×. Clip is the dominant reason the distribution's max P(≥1 HR) = 0.72 sits above the PROMPT's 0.35–0.55 guide band; the alternative (uncapped) is much worse.
+- **Exact Poisson-binomial PMF via convolution** (`src/models/rollup.py`), not Poisson approximation. n ≤ 10 PAs per game; O(n²) is instantaneous. Per-PA probabilities vary too much (TTO + starter/bullpen transition) for the Poisson mean-equals-variance assumption to hold.
+- **No ensemble.** Phase-4 pre-cal ECE was already 0.006; post-cal is 0.002. A second base model adds complexity without measurable calibration gain. The PROMPT framed ensemble as "only if single model misses the bar" — the single model hit the bar 12× over.
+- **Sanity-check caveat carried as Phase-4 tech debt, not a Phase-5 defect.** The test-set top-5 P(≥1 HR) matchups are not dominated by Judge/Ohtani/Alonso as the PROMPT expected — they're a mix of fringe (Osuna, Bliss, Mangum) and regular-but-not-elite (Ruiz, Naylor) players. Root cause is Phase-4 AUC = 0.68 compressing mid-tier regulars and elite sluggers into the same right-tail raw-probability bucket. The calibration layer can't fix ranking (monotone by construction); the rollup is deterministic given per-PA probs. This is a **modeling capacity** problem to solve in a later phase, not a Phase-5 acceptance blocker. See `phases/phase5/RESULTS.md` and `NOTES.md` for the full narrative.
+
 ## Open questions / decisions pending
-- None blocking Phase 5.
+- None blocking Phase 6.
 
 ## Open bugs / technical debt
 - **`launch_speed` null-rate threshold in Phase 1 PROMPT is misframed.** (Carried from Phase 2.) Phase 3 feature-engineering now handles this correctly via ball-in-play-conditional FILTERs.
@@ -103,6 +112,8 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **Synthetic test-fixture rows in `matchup_features`** (game_pk 888003, 888004 from Task 11 leakage + smoke tests). Harmless — cleanable via `DELETE FROM matchup_features WHERE game_pk IN (888003, 888004)`.
 - **Full historical rebuild of `matchup_features` requires ~12 hours.** Day-batching already gets us an 8× speedup; next lever is a pre-materialized `batter_rolling_mv` (Phase 5+ perf option).
 - **Phase 4 SHAP plot generation is broken** on XGBoost 2.x (`feature_names_in_` setter). Pin `shap<0.45` or adapt to raw `Booster`. Low priority.
+- **Per-PA model ranking capacity is weak** (test AUC 0.68). Carried forward from Phase 4, surfaced in the Phase 5 sanity check — top-5 P(≥1 HR) is not dominated by elite sluggers. Resolving requires better features / ensemble / ranking-optimized objective; deferred to a post-Phase-6 modeling pass.
+- **`sanity_runner.py` relies on row-order alignment** between `time_based_split`'s `X` and a re-query of `matchup_features` with the same filters. Stable in practice but not formally guaranteed. A future small refactor can plumb `(game_pk, batter_id, pitcher_id)` through `FeatureFrame.metadata` to make alignment explicit.
 
 ## Next action
-Controller applies `phase-4-complete` tag after final review. Phase 5 (`phases/phase5/PROMPT.md`) covers isotonic calibration + per-game rollup.
+Controller applies `phase-5-complete` tag after final review. Phase 6 (`phases/phase6/PROMPT.md`) covers the FastAPI backend.
