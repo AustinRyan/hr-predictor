@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 from src.api.errors import register_error_handlers
 from src.api.routers import health as health_router
+from src.api.routers import matchup as matchup_router
 from src.api.routers import picks as picks_router
 from src.api.routers import player as player_router
 from src.core.logging_config import configure_logging
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router.router)
     app.include_router(picks_router.router)
     app.include_router(player_router.router)
+    app.include_router(matchup_router.router)
     return app
 
 
