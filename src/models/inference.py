@@ -59,6 +59,29 @@ def generate_predictions_for_date(
         )
         calibrator = None
 
+    # Ensemble support (Option 3): if training_metadata declares an
+    # ``ensemble`` block, look for a sibling LightGBM booster at
+    # ``lightgbm.txt`` and average its probs with the XGBoost model's
+    # probs at inference time (50/50, matching training-time composition).
+    ensemble_meta = loaded.training_metadata.get("ensemble")
+    lgbm_booster = None
+    if ensemble_meta:
+        lgbm_path = loaded.path / "lightgbm.txt"
+        if lgbm_path.exists():
+            import lightgbm as lgb
+
+            lgbm_booster = lgb.Booster(model_file=str(lgbm_path))
+            _log.info(
+                "loaded ensemble LightGBM component",
+                extra={"path": str(lgbm_path), "ensemble": ensemble_meta},
+            )
+        else:
+            _log.warning(
+                "ensemble metadata present but lightgbm.txt missing; "
+                "falling back to XGBoost-only",
+                extra={"model_version": loaded.version},
+            )
+
     # Pull the batter x probable-starter tuples + their matchup_features row.
     # Key insight: matchup_features is keyed by (game_date, game_pk, batter_id,
     # pitcher_id). For future rows, is_historical=False and ctx_batting_order
@@ -105,7 +128,12 @@ def generate_predictions_for_date(
         columns=FEATURE_COLUMNS,
     )
     dmat = xgboost.DMatrix(feat_df.values, feature_names=loaded.feature_schema)
-    raw_probs = loaded.model.predict(dmat)
+    raw_xgb = loaded.model.predict(dmat)
+    if lgbm_booster is not None:
+        raw_lgb = lgbm_booster.predict(feat_df, num_iteration=lgbm_booster.best_iteration)
+        raw_probs = 0.5 * raw_xgb + 0.5 * raw_lgb
+    else:
+        raw_probs = raw_xgb
     cal_probs = apply_calibrator(calibrator, raw_probs) if calibrator else raw_probs
 
     # SHAP top-k feature contributions per row. We prefer `shap.TreeExplainer`,
