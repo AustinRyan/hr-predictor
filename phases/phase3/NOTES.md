@@ -125,6 +125,14 @@ If future phases want to fill the 'S' and exhibition gap: fall back to
 a handedness-neutral park factor (average L+R) or to league-average.
 Not blocking for Phase 4 — XGBoost handles NULLs natively.
 
+**Gap closed post-tag (Phase 3.5, 2026-04-23):** the remaining 10%
+turned out to be 100% exhibition-venue rows (Steinbrenner, Sutter Health,
+spring training) where the park_id isn't in Savant's leaderboard at all.
+Statcast's `stand` column never emits 'S' — it records the batting side
+per PA, so switch hitters already got L or R from `MODE()`. Those 66,434
+rows were set to neutral 100.0 for both `park_hr_factor_hand` and
+`park_hr_factor_hand_3yr`. Populated rate is now 100%.
+
 ### Physics threshold drift
 
 PROMPT.md's sanity-check thresholds for air density (0.96 at 95°F/60%,
@@ -161,12 +169,8 @@ tractable but wasn't needed to unblock Phase 3.
 
 ### Stray test-fixture rows
 
-Tests in `tests/features/test_leakage.py` and
-`tests/features/test_builder_smoke.py` seed synthetic rows against the
-dev DB via the shared `seeded_parks_teams` / `leakage_setup` fixtures.
-Game_pk 888003 and 888004 are synthetic; the backfill's upsert
-overwrote their "real" dates (2024-07-04 is a valid game date) but
-the synthetic game_pks persist. Harmless — they're not referenced by
-any real game and can be deleted via
-`DELETE FROM matchup_features WHERE game_pk IN (888003, 888004)` any
-time.
+**Non-issue — resolved.** The Task 11 leakage + smoke tests use the
+`test_engine` fixture which routes to the `hrp_test` DB, not `hrp`.
+The synthetic game_pks (888003, 888004) never landed in the dev
+database. A verification `DELETE` against `hrp` for those game_pks
+returned 0 rows.
