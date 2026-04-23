@@ -326,6 +326,40 @@ class OpenMeteoForecastResponse(BaseModel):
     hourly: OpenMeteoHourly = Field(default_factory=OpenMeteoHourly)
 
 
+# -------- Open-Meteo archive (historical) --------
+
+
+class OpenMeteoArchiveHourly(BaseModel):
+    """Parallel arrays keyed by hour from `/v1/archive`.
+
+    Schema mirrors the forecast hourly block except the precipitation
+    field is ``precipitation`` (mm) — the archive has no forecast-style
+    ``precipitation_probability``. Otherwise same variables, same units
+    when requested via ``wind_speed_unit=kmh&temperature_unit=celsius``.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    time: list[str] = Field(default_factory=list)
+    temperature_2m: list[float | None] = Field(default_factory=list)
+    apparent_temperature: list[float | None] = Field(default_factory=list)
+    relative_humidity_2m: list[float | None] = Field(default_factory=list)
+    surface_pressure: list[float | None] = Field(default_factory=list)
+    wind_speed_10m: list[float | None] = Field(default_factory=list)
+    wind_direction_10m: list[float | None] = Field(default_factory=list)
+    precipitation: list[float | None] = Field(default_factory=list)
+    cloud_cover: list[float | None] = Field(default_factory=list)
+
+
+class OpenMeteoArchiveResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    latitude: float
+    longitude: float
+    timezone: str | None = None
+    hourly: OpenMeteoArchiveHourly = Field(default_factory=OpenMeteoArchiveHourly)
+
+
 # -------- Feed/live (game content) --------
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -15,7 +15,9 @@ from src.ingestion.weather import (
     _celsius_to_f,
     _kmh_to_mph,
     _pick_hour_nearest,
+    fetch_archive_range,
     fetch_weather_forecast,
+    persist_weather_archive_for_park,
     persist_weather_for_today,
 )
 
@@ -148,3 +150,99 @@ def test_persist_weather_writes_outdoor_park_rows(seeded_parks_teams: Engine) ->
     with seeded_parks_teams.begin() as c:
         c.execute(text("DELETE FROM weather_forecasts WHERE park_id = 19"))
         c.execute(text("DELETE FROM daily_schedule WHERE game_pk = 999101"))
+
+
+# ---------------------------------------------------------------------------
+# Archive (historical) tests
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_archive_range_returns_converted_rows() -> None:
+    """Cassette-backed: Coors 2024-07-15 full day, 24 hourly rows in US units."""
+    with _vcr.use_cassette("openmeteo_archive_coors_2024-07-15.yaml"):
+        rows = fetch_archive_range(
+            park_id=19,
+            latitude=39.7559,
+            longitude=-104.9942,
+            start_date=date(2024, 7, 15),
+            end_date=date(2024, 7, 15),
+        )
+
+    assert len(rows) == 24  # one row per hour for one day
+    first = rows[0]
+    # Schema check.
+    for key in (
+        "park_id",
+        "valid_hour_utc",
+        "temperature_f",
+        "feels_like_f",
+        "humidity_pct",
+        "pressure_hpa",
+        "wind_speed_mph",
+        "wind_direction_deg",
+        "precipitation_mm",
+        "cloud_cover_pct",
+    ):
+        assert key in first, f"missing key {key}"
+    # Converted units in plausible ranges for Denver mid-July.
+    assert first["park_id"] == 19
+    assert first["valid_hour_utc"].tzinfo is not None
+    temps = [r["temperature_f"] for r in rows]
+    assert all(40.0 < t < 115.0 for t in temps), temps
+    assert all(0 <= r["humidity_pct"] <= 100 for r in rows)
+    assert all(0 <= r["wind_direction_deg"] <= 360 for r in rows)
+
+
+@pytest.mark.integration
+def test_persist_weather_archive_for_park_writes_rows(
+    seeded_parks_teams: Engine,
+) -> None:
+    """One park, one day -> 24 weather_archive rows, idempotent on re-run."""
+    with seeded_parks_teams.begin() as c:
+        c.execute(
+            text("UPDATE parks SET latitude = 39.7559, longitude = -104.9942 " "WHERE park_id = 19")
+        )
+
+    with _vcr.use_cassette("openmeteo_archive_coors_2024-07-15.yaml"):
+        written = persist_weather_archive_for_park(
+            park_id=19,
+            start_date=date(2024, 7, 15),
+            end_date=date(2024, 7, 15),
+            engine=seeded_parks_teams,
+        )
+    assert written == 24
+
+    with seeded_parks_teams.connect() as c:
+        count = c.execute(
+            text("SELECT COUNT(*) FROM weather_archive WHERE park_id = 19")
+        ).scalar_one()
+        sample = c.execute(
+            text(
+                "SELECT temperature_f, humidity_pct, wind_speed_mph "
+                "FROM weather_archive WHERE park_id = 19 "
+                "AND valid_hour_utc = '2024-07-15 20:00+00' LIMIT 1"
+            )
+        ).one()
+    assert count == 24
+    # 20:00 UTC = 14:00 MDT Denver peak: ~95F, sub-20% humidity.
+    assert 80.0 < sample.temperature_f < 110.0
+    assert 0.0 <= sample.humidity_pct <= 50.0
+
+    # Rerun: idempotent (upsert).
+    with _vcr.use_cassette("openmeteo_archive_coors_2024-07-15.yaml"):
+        again = persist_weather_archive_for_park(
+            park_id=19,
+            start_date=date(2024, 7, 15),
+            end_date=date(2024, 7, 15),
+            engine=seeded_parks_teams,
+        )
+    assert again == 24
+    with seeded_parks_teams.connect() as c:
+        count2 = c.execute(
+            text("SELECT COUNT(*) FROM weather_archive WHERE park_id = 19")
+        ).scalar_one()
+    assert count2 == 24  # no duplicates
+
+    # Cleanup.
+    with seeded_parks_teams.begin() as c:
+        c.execute(text("DELETE FROM weather_archive WHERE park_id = 19"))

@@ -244,6 +244,29 @@ class WeatherForecast(Base):
     cloud_cover_pct: Mapped[float | None] = mapped_column(Float)
 
 
+class WeatherArchive(Base):
+    """Historical hourly weather per park from Open-Meteo /v1/archive.
+
+    One-true observation per (park_id, valid_hour_utc). Distinct from
+    `weather_forecasts`, which stores forecast revisions keyed by
+    `fetched_at`. Phase 3.5 backfill source for historical `wx_*`
+    columns on `matchup_features`.
+    """
+
+    __tablename__ = "weather_archive"
+
+    park_id: Mapped[int] = mapped_column(Integer, ForeignKey("parks.park_id"), primary_key=True)
+    valid_hour_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    temperature_f: Mapped[float | None] = mapped_column(Float)
+    feels_like_f: Mapped[float | None] = mapped_column(Float)
+    humidity_pct: Mapped[float | None] = mapped_column(Float)
+    pressure_hpa: Mapped[float | None] = mapped_column(Float)
+    wind_speed_mph: Mapped[float | None] = mapped_column(Float)
+    wind_direction_deg: Mapped[float | None] = mapped_column(Float)
+    precipitation_mm: Mapped[float | None] = mapped_column(Float)
+    cloud_cover_pct: Mapped[float | None] = mapped_column(Float)
+
+
 class ParkFactor(Base):
     __tablename__ = "park_factors"
 
