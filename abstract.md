@@ -74,12 +74,14 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **Park-factor backfill mid-close**: Phase 2 had only seeded `park_factors` for season=2026. After the Phase 3 matchup_features backfill completed, ran `refresh_park_factors(season)` for 2021–2025, then did a targeted UPDATE on matchup_features using a `matchup_stand` temp table (batter hand via `MODE() WITHIN GROUP`). `park_hr_factor_hand` populated rate jumped 2.7% → 90%. Remaining 10% NULL is switch-hitter matchups (Savant publishes L/R only) and exhibition venues (Steinbrenner, Sutter Health, spring training).
 - **Physics formulas are exact** (Magnus-corrected ideal gas). PROMPT's sanity-check values (0.96 at 95°F/60%, 1.07 at 40°F/40%) were eyeball approximations; the formula actually produces 0.923 and 1.036. Unit tests assert the formula output. Noted in `phases/phase3/NOTES.md`.
 - **Leakage guaranteed** by strict `<` on `reference_date` in every aggregate FILTER. Regex test on each generator + end-to-end `tests/features/test_leakage.py` that seeds a clobber on the target date and asserts it's excluded.
-- **Known Phase 3 gaps (all deferred to later phases):**
-  - `wx_*` NULL for historical rows — Phase 2 only forecasts today/future. Phase 4+ can ingest Open-Meteo `/v1/archive`.
-  - `ctx_batting_order` / `ctx_projected_pa` NULL for historical — `projected_lineups` started in Phase 2. Could infer from `at_bat_number` ordering if needed.
-  - `b_pulled_fb_pct_*` — batter_rolling emits NULL literals; needs hc_x/hc_y + handedness pull zones.
+- **Phase 3.5 gap-fix pass (2026-04-23):** closed the three high-impact NULL columns from Phase 3 closeout.
+  - **Weather backfill:** migration `0005_weather_archive` + Open-Meteo `/v1/archive` ingestion. All 44 primary parks × 5 years of hourly observations (~1.95M rows). Targeted UPDATE on matchup_features populated `wx_*` at 78.4% (remaining is exhibition venues without lat/lon). Dome gating verified (16,591 Tropicana rows).
+  - **Pulled FB%:** `batter_rolling.py` now emits real FILTER aggregates over hc_x/handedness pull zones. Critical fix mid-backfill: **both numerator and denominator gate on `hc_x IS NOT NULL`** because ~60% of Statcast FBs lack location data (foul FBs, pop-ups, swinging strikes). Without this gating, the ratio deflates from the true ~40% to ~16%. Coverage 93% on season window; Judge 41% matches his profile.
+  - **ctx_batting_order:** inferred from `statcast_pitches.at_bat_number` first-appearance ordering within each `(game_pk, inning_topbot)`. First 9 distinct batters per team-side → slots 1-9. Pinch hitters past slot 9 stay NULL. 91.8% populated; slot distribution balanced 1-8 with slot 9 slightly lower (NL pinch-hit-for-pitcher pre-2022). `ctx_projected_pa` + `p_tto_penalty` filled via the same UPDATE.
+- **Still deferred to Phase 4+:**
   - Bullpen is league-wide-minus-starter, not team-specific. Phase 4+ pitcher-role table would refine.
   - HR/9 uses `HR_count / PA_count * 38.7` proxy (9 innings × 4.3 PAs/inning) because `statcast_pitches` doesn't track outs-per-PA directly.
+  - Retractable-roof historical status unknown. Phase 4+ can backfill via StatsAPI `/feed/live` per game (~13k calls).
 
 ## Open questions / decisions pending
 - None blocking Phase 4.

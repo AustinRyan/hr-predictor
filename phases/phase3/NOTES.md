@@ -163,9 +163,71 @@ tractable but wasn't needed to unblock Phase 3.
 
 ### Known NULL columns by design
 
-- `b_pulled_fb_pct_{7d,14d,30d,season}` — batter_rolling emits NULL
-  literals. Requires `hc_x` / `hc_y` plus batter-handedness-aware pull
-  zones. Slot reserved; implementation deferred.
+- (none — pulled-FB gap closed in Phase 3.5; see below.)
+
+### Pulled-FB pct gap closed (Phase 3.5)
+
+`b_pulled_fb_pct_{7d,14d,30d,season}` was emitted as a NULL literal by
+`batter_rolling.py` at Phase 3 close; closed post-tag 2026-04-23.
+
+- **Generator:** `_metric_expressions` now emits a real FILTER aggregate
+  with a pull-zone predicate. Numerator: FB (launch_angle > 25,
+  launch_speed IS NOT NULL, **hc_x IS NOT NULL**) in the pull zone for
+  the batter's `stand` that PA (`R AND hc_x < 125.42` OR
+  `L AND hc_x > 125.42`). Denominator: **located FB (hc_x IS NOT NULL)**
+  in the window.
+- **Critical bug caught mid-backfill:** the first draft put
+  `hc_x IS NOT NULL` only in the numerator. This deflated the ratio
+  from the true ~40% to ~16% because ~60% of FBs have NULL hc_x (foul
+  FBs, pop-ups, swinging-strike FB-angle contacts). Both sides now
+  require hc_x populated — standard sabermetric "among located FBs,
+  what fraction was pulled" definition. Unit test
+  `test_pulled_fb_pct_handles_null_hcx` locks the contract.
+- **Backfill:** `phases/phase3/pulled_fb_backfill.py` runs four UPDATEs
+  (one per window) in ~12.6 min. Post-close league mean ~40%; Judge
+  season 41%; coverage 93% on the season window.
+
+### Historical weather gap closed (Phase 3.5)
+
+- **Migration `0005_weather_archive`** adds a `weather_archive` table
+  keyed by `(park_id, valid_hour_utc)`. Hourly observations pulled
+  from Open-Meteo `/v1/archive` endpoint (free, rate-limited ~1000/day
+  but accepts multi-year date ranges in one call → ~44 API calls for
+  the whole dataset, each returning 44,376 hourly rows over 5 years).
+- **Backfill:** `phases/phase3/weather_archive_runner.py` pulls archive
+  + `backfill_wx_for_historical()` UPDATEs `matchup_features`. The
+  runner crashed mid-fetch (process tree issue on nohup); archive rows
+  did land for all 44 parks, and a separate targeted UPDATE finished
+  the job in 9 seconds touching 523,618 historical rows.
+- **Coverage:** `wx_temperature_f` at 78.4%. Remaining NULL are
+  exhibition-venue rows without lat/lon (Walmart Park, spring training).
+- **Dome gating:** all 16,591 Tropicana historical rows have
+  `wx_is_roof_closed = True` with climate-neutral wx_* values.
+- **Retractable-roof historical state is unknown** (Phase 2 only stores
+  current roof_status). Those games default to open-air weather.
+  Future option: backfill roof_status from StatsAPI `feed/live` per
+  game, adding ~13k API calls overnight.
+
+### Historical batting_order gap closed (Phase 3.5)
+
+- **Inference:** `phases/phase3/batting_order_backfill.py` infers slot
+  from `statcast_pitches` first-appearance ordering within each
+  `(game_pk, inning_topbot)` group. First 9 distinct batters per
+  team-side → slots 1-9 by earliest `at_bat_number`. Pinch hitters
+  past slot 9 stay NULL.
+- **Backfill:** one window-function UPDATE over 613,027 rows in ~9
+  seconds. Populates `ctx_batting_order`, `ctx_projected_pa` (via
+  `PA_BY_BATTING_ORDER` map), and `p_tto_penalty` (via
+  `tto_penalty_for(projected_pa_count)` — works out to ~1.0833 for
+  every slot 1-9 since PAs 1-3 are all starter and PAs 4+ are bullpen-
+  dropped from the weighted average).
+- **Coverage:** 91.8% populated. 8.2% NULL are pinch-hitter matchups
+  (slot 10+ in inferred order). Expected and correct — we can't assign
+  a starting-slot value to a pinch hitter.
+- **Slot distribution validates:** 67k-69k rows per slot 1-8, slot 9
+  is 62k (NL pinch-hit-for-pitcher pattern pre-2022 rule change).
+- **Judge spot check:** concentrated at slots 2/3 (97 / 1072 / 952 for
+  slots 1/2/3) — matches his historical lineup profile.
 
 ### Stray test-fixture rows
 
