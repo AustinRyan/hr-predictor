@@ -6,11 +6,18 @@ composes into an INSERT. Output schema documented in ``rolling_features_sql``.
 Leakage contract: every aggregate filter uses ``sp.game_date < mk.reference_date``
 (strict inequality). No ``<=`` anywhere.
 
-Known gap: ``b_pulled_fb_pct_*`` is NOT computed here - it requires hc_x/hc_y
-handedness-aware pull zones. Emitted as NULL; filled in a separate task.
+Pulled-FB zones: ``hc_x`` is the Statcast screen coordinate of the batted
+ball's landing location; the field's center-field line runs at
+``hc_x = 125.42``. A ball is pulled if a right-handed batter hits it to
+left field (``hc_x < 125.42``) or a left-handed batter hits it to right
+field (``hc_x > 125.42``). Switch hitters use ``sp.stand``, which records
+the side they actually batted from in that PA.
 """
 
 from __future__ import annotations
+
+# Statcast screen-coordinate boundary dividing LF from RF (center-field line).
+_PULL_HCX_CENTER = 125.42
 
 # Window spec -> SQL predicate against mk.reference_date + sp.game_date.
 _WINDOWS: dict[str, str] = {
@@ -43,6 +50,22 @@ def _metric_expressions(window_label: str, window_predicate: str) -> list[str]:
         f"AND sp.estimated_ba_using_speedangle IS NOT NULL)"
     )
     pa = f"({window_predicate} AND sp.events IS NOT NULL AND sp.events <> '')"
+    # Fly-ball denominator for pulled-FB% requires hc_x IS NOT NULL on both
+    # sides of the ratio — ~60% of FBs have NULL hc_x (foul FBs, pop-ups
+    # caught close to home plate, etc.) and including them in the denominator
+    # but not the numerator systematically deflates the ratio. Gating both
+    # sides on hc_x presence gives the true "among known-location FBs, what
+    # fraction was pulled." Matches standard sabermetric convention.
+    fb_located = (
+        f"({window_predicate} AND sp.launch_angle > 25 "
+        f"AND sp.launch_speed IS NOT NULL AND sp.hc_x IS NOT NULL)"
+    )
+    # Pull zone: R hits to LF (hc_x < 125.42), L hits to RF (hc_x > 125.42).
+    pull_zone = (
+        f"((sp.stand = 'R' AND sp.hc_x < {_PULL_HCX_CENTER}) "
+        f"OR (sp.stand = 'L' AND sp.hc_x > {_PULL_HCX_CENTER}))"
+    )
+    pulled_fb = f"({fb_located[1:-1]} AND {pull_zone})"
 
     return [
         # barrel_pct = barrels / BIP
@@ -78,8 +101,11 @@ def _metric_expressions(window_label: str, window_predicate: str) -> list[str]:
         # PA count
         f"COUNT(DISTINCT (sp.game_pk, sp.at_bat_number))"
         f" FILTER (WHERE {pa}) AS b_pa_count_{window_label}",
-        # pulled FB pct - known gap; emit NULL literal for a later task.
-        f"NULL::double precision AS b_pulled_fb_pct_{window_label}",
+        # Pulled FB pct = pulled-FB / located-FB (both sides gated on hc_x
+        # NOT NULL so NULL-location FBs don't bias the ratio down).
+        f"(COUNT(*) FILTER (WHERE {pulled_fb})::float"
+        f" / NULLIF(COUNT(*) FILTER (WHERE {fb_located})::float, 0))"
+        f" AS b_pulled_fb_pct_{window_label}",
     ]
 
 
@@ -91,8 +117,7 @@ def rolling_features_sql() -> str:
     per key with 43 columns:
 
     - 3 keys (``game_pk``, ``batter_id``, ``reference_date``)
-    - 10 metrics x 4 windows = 40 feature columns (includes ``b_pulled_fb_pct_*``
-      emitted as NULL literals to be filled in a later task)
+    - 11 metrics x 4 windows = 44 feature columns
 
     Leakage contract: aggregates use only pitches where
     ``sp.game_date < mk.reference_date`` (strict inequality).

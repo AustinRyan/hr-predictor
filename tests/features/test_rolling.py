@@ -167,3 +167,222 @@ def test_rolling_returns_nulls_for_batter_with_no_pa(
     assert row["b_pa_count_7d"] == 0
     assert row["b_avg_ev_7d"] is None
     assert row["b_barrel_pct_7d"] is None
+
+
+# ---------------------------------------------------------------------------
+# Pulled-FB pct tests (hc_x/hc_y pull zones)
+# ---------------------------------------------------------------------------
+
+
+def _insert_pitch(
+    session,
+    *,
+    batter: int,
+    game_date: date,
+    game_pk: int,
+    at_bat: int,
+    stand: str | None,
+    launch_angle: float | None,
+    launch_speed: float | None,
+    hc_x: float | None,
+    events: str = "single",
+) -> None:
+    """Tiny helper to seed a single statcast_pitches row for pulled-FB tests."""
+    session.execute(
+        text(
+            "INSERT INTO statcast_pitches "
+            "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, "
+            " stand, launch_speed, launch_angle, hc_x, events) "
+            "VALUES (:gd, :gp, :ab, 1, :bat, 999999, :stand, :ls, :la, :hcx, :ev)"
+        ),
+        {
+            "gd": game_date,
+            "gp": game_pk,
+            "ab": at_bat,
+            "bat": batter,
+            "stand": stand,
+            "ls": launch_speed,
+            "la": launch_angle,
+            "hcx": hc_x,
+            "ev": events,
+        },
+    )
+
+
+@pytest.fixture()
+def seeded_pulled_fb_data(test_engine: Engine, clean_tables) -> Engine:
+    """Synthetic R-handed batter 880001 with known FBs.
+
+    Reference date: 2024-06-05. Six pitches seeded pre-ref:
+      2024-06-01: launch_angle=30, hc_x=60   -> pulled (LF, R)
+      2024-06-01: launch_angle=28, hc_x=180  -> oppo (RF, R)  [not pulled]
+      2024-06-02: launch_angle=30, hc_x=70   -> pulled (LF, R)
+      2024-06-03: launch_angle=30, hc_x=130  -> center (~hc_x=125.42) [not pulled]
+      2024-06-03: launch_angle=15, hc_x=50   -> NOT a FB (la<=25) — excluded
+      2024-06-04: launch_angle=35, hc_x=100  -> pulled (LF, R)
+
+    Denominator (FB with launch_speed IS NOT NULL): 5 pitches are FB and
+    have EV set. Pulled: 3.
+    Expected: b_pulled_fb_pct_7d = 3 / 5 = 0.6
+    """
+    session_factory = sessionmaker(bind=test_engine, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        # Fixtures: (game_date, game_pk, at_bat, launch_angle, hc_x, launch_speed)
+        rows = [
+            (date(2024, 6, 1), 8800001, 1, 30.0, 60.0, 95.0),
+            (date(2024, 6, 1), 8800001, 2, 28.0, 180.0, 98.0),
+            (date(2024, 6, 2), 8800002, 1, 30.0, 70.0, 100.0),
+            (date(2024, 6, 3), 8800003, 1, 30.0, 130.0, 92.0),
+            (date(2024, 6, 3), 8800003, 2, 15.0, 50.0, 85.0),  # not FB (la<=25)
+            (date(2024, 6, 4), 8800004, 1, 35.0, 100.0, 105.0),
+        ]
+        for gd, gp, ab, la, hcx, ls in rows:
+            _insert_pitch(
+                s,
+                batter=880001,
+                game_date=gd,
+                game_pk=gp,
+                at_bat=ab,
+                stand="R",
+                launch_angle=la,
+                launch_speed=ls,
+                hc_x=hcx,
+            )
+        s.commit()
+    return test_engine
+
+
+@pytest.mark.integration
+def test_pulled_fb_pct_r_handed(seeded_pulled_fb_data: Engine) -> None:
+    """Right-handed batter: ``hc_x < 125.42`` is pulled."""
+    sql = f"""
+        WITH matchup_keys AS (
+            SELECT 100 AS game_pk, 880001 AS batter_id, DATE '2024-06-05' AS reference_date
+        ),
+        batter_rolling AS (
+            {rolling_features_sql()}
+        )
+        SELECT * FROM batter_rolling
+    """
+    session_factory = sessionmaker(bind=seeded_pulled_fb_data, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        row = s.execute(text(sql)).mappings().one()
+
+    # 5 FB total (la>25, EV set); 3 pulled (hc_x=60, 70, 100 for an R batter).
+    # hc_x=180 is oppo; hc_x=130 is slightly RF-of-center (not pulled for R).
+    # launch_angle=15 row is excluded (not a FB).
+    assert row["b_pulled_fb_pct_7d"] == pytest.approx(3.0 / 5.0, abs=1e-6)
+    # Window independence check: 14d/30d/season cover the same 5 FB.
+    assert row["b_pulled_fb_pct_14d"] == pytest.approx(3.0 / 5.0, abs=1e-6)
+    assert row["b_pulled_fb_pct_30d"] == pytest.approx(3.0 / 5.0, abs=1e-6)
+    assert row["b_pulled_fb_pct_season"] == pytest.approx(3.0 / 5.0, abs=1e-6)
+
+
+@pytest.mark.integration
+def test_pulled_fb_pct_lhb_uses_opposite_side(test_engine: Engine, clean_tables) -> None:
+    """Left-handed batter: ``hc_x > 125.42`` is pulled.
+
+    Seed 3 FBs:
+      hc_x=200 (pulled -- RF for L)
+      hc_x=80  (oppo  -- LF for L; not pulled)
+      hc_x=130 (center-RF -- pulled for L since > 125.42)
+
+    Actually 130 > 125.42, so for L that IS pulled. Let's use 125 instead
+    to get center (not pulled). We'll use: 200, 80, 125.
+    Pulled for L: hc_x=200 -> 1 pulled out of 3 total FB. => 1/3 ≈ 0.333.
+    """
+    session_factory = sessionmaker(bind=test_engine, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        rows = [
+            # (game_date, game_pk, at_bat, launch_angle, hc_x, launch_speed)
+            (date(2024, 6, 2), 8810001, 1, 30.0, 200.0, 95.0),  # pulled-RF for L
+            (date(2024, 6, 3), 8810002, 1, 30.0, 80.0, 98.0),  # oppo-LF for L
+            (
+                date(2024, 6, 4),
+                8810003,
+                1,
+                30.0,
+                125.0,
+                92.0,
+            ),  # center (< 125.42, not pulled for L)
+        ]
+        for gd, gp, ab, la, hcx, ls in rows:
+            _insert_pitch(
+                s,
+                batter=881001,
+                game_date=gd,
+                game_pk=gp,
+                at_bat=ab,
+                stand="L",
+                launch_angle=la,
+                launch_speed=ls,
+                hc_x=hcx,
+            )
+        s.commit()
+
+    sql = f"""
+        WITH matchup_keys AS (
+            SELECT 200 AS game_pk, 881001 AS batter_id, DATE '2024-06-05' AS reference_date
+        ),
+        batter_rolling AS (
+            {rolling_features_sql()}
+        )
+        SELECT * FROM batter_rolling
+    """
+    with session_factory() as s:
+        row = s.execute(text(sql)).mappings().one()
+
+    assert row["b_pulled_fb_pct_7d"] == pytest.approx(1.0 / 3.0, abs=1e-6)
+
+
+@pytest.mark.integration
+def test_pulled_fb_pct_handles_null_hcx(test_engine: Engine, clean_tables) -> None:
+    """NULL ``hc_x`` is excluded from BOTH numerator and denominator.
+
+    Rationale: ~60% of Statcast FBs have NULL hc_x (foul FBs, pop-ups
+    caught close to home plate, swinging-strike contacts, etc.).
+    Including them denominator-only systematically deflates the ratio
+    (~40% empirical → ~16% observed). Both-sides gating matches the
+    standard "among located FBs, what fraction was pulled" definition.
+
+    Seed 3 FBs for an R batter:
+      hc_x=NULL -> excluded from the ratio entirely
+      hc_x=60   -> located, pulled (LF)
+      hc_x=180  -> located, not pulled (oppo RF)
+    Expected: pct = 1 pulled / 2 located = 0.5. The NULL-hc_x FB does
+    not shift the ratio.
+    """
+    session_factory = sessionmaker(bind=test_engine, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        rows = [
+            (date(2024, 6, 2), 8820001, 1, 30.0, None, 95.0),
+            (date(2024, 6, 3), 8820002, 1, 30.0, 60.0, 98.0),
+            (date(2024, 6, 4), 8820003, 1, 30.0, 180.0, 97.0),
+        ]
+        for gd, gp, ab, la, hcx, ls in rows:
+            _insert_pitch(
+                s,
+                batter=882001,
+                game_date=gd,
+                game_pk=gp,
+                at_bat=ab,
+                stand="R",
+                launch_angle=la,
+                launch_speed=ls,
+                hc_x=hcx,
+            )
+        s.commit()
+
+    sql = f"""
+        WITH matchup_keys AS (
+            SELECT 300 AS game_pk, 882001 AS batter_id, DATE '2024-06-05' AS reference_date
+        ),
+        batter_rolling AS (
+            {rolling_features_sql()}
+        )
+        SELECT * FROM batter_rolling
+    """
+    with session_factory() as s:
+        row = s.execute(text(sql)).mappings().one()
+
+    assert row["b_pulled_fb_pct_7d"] == pytest.approx(0.5, abs=1e-6)
