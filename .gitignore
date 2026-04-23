@@ -55,6 +55,8 @@ coverage.xml
 *.sqlite3
 models/artifacts/
 data/cache/
+src/models/registry/v*/
+src/models/registry/PRODUCTION
 
 # Ingestion (generated / transient)
 reports/
