@@ -27,8 +27,10 @@ from sqlalchemy import (
     Integer,
     SmallInteger,
     String,
+    UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -457,4 +459,35 @@ class MatchupFeature(Base):
     # Audit
     built_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Prediction(Base):
+    """Per-(game, batter) HR probability output for a specific model version."""
+
+    __tablename__ = "predictions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    game_pk: Mapped[int] = mapped_column(Integer, nullable=False)
+    batter_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    pitcher_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    game_date: Mapped[date] = mapped_column(Date, nullable=False)
+    model_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    matchup_components: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    projected_pas: Mapped[float | None] = mapped_column(Float)
+    prob_at_least_one_hr: Mapped[float] = mapped_column(Float, nullable=False)
+    prob_at_least_two_hr: Mapped[float | None] = mapped_column(Float)
+    expected_hrs: Mapped[float | None] = mapped_column(Float)
+    feature_contributions: Mapped[dict | None] = mapped_column(JSONB)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "game_pk",
+            "batter_id",
+            "model_version",
+            name="uq_predictions_game_batter_model",
+        ),
     )

@@ -119,9 +119,10 @@ def clean_tables(test_engine: Engine) -> Iterator[None]:
     with test_engine.begin() as c:
         c.execute(
             text(
-                "TRUNCATE TABLE matchup_features, statcast_pitches, projected_lineups, "
-                "weather_forecasts, park_factors, daily_schedule, games, players, teams, "
-                "parks, ingestion_state RESTART IDENTITY CASCADE"
+                "TRUNCATE TABLE predictions, matchup_features, statcast_pitches, "
+                "projected_lineups, weather_forecasts, park_factors, daily_schedule, "
+                "games, players, teams, parks, ingestion_state "
+                "RESTART IDENTITY CASCADE"
             )
         )
     yield
