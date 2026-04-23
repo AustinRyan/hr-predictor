@@ -2,6 +2,8 @@
 
 Context and design rationale for the decisions that aren't obvious from code alone. Pair with `RESULTS.md` (metrics) and `ACCEPTANCE.md` (walked checklist).
 
+> **Semantic-bug correction (post-tag):** the sections titled "Per-PA sequence: single-inference + scalar adjustments" and "Bullpen clip at [0.5, 2.0]" below describe the **original** (incorrect) rollup design that treated the model's output as per-PA. The actual Phase 3 label is per-(batter, pitcher, game), so no PA-level compounding is needed. See the "Rollup semantic bug — fixed post-tag" section at the bottom of this file for the corrected design. The original sections are retained here as historical context.
+
 ## Isotonic over Platt
 
 Tree ensembles produce score distributions that are not logistic-shaped. Platt scaling (fit a sigmoid to raw scores) presupposes a logistic link and systematically under-corrects non-sigmoid miscalibration. Isotonic regression is non-parametric — it fits any monotone-increasing piecewise-constant map — so it's the standard choice for XGBoost/LightGBM post-hoc calibration. `sklearn.isotonic.IsotonicRegression(out_of_bounds="clip", y_min=0, y_max=1)` also clips test-time predictions outside the validation-observed range to the nearest endpoint rather than extrapolating, which is the safe behavior when the val set's right tail doesn't reach the test set's right tail.
@@ -62,9 +64,29 @@ If this assertion ever fires, the fix is to carry game_pk/batter_id/pitcher_id o
 
 - `src/models/calibrate.py` — fit/apply/save/load isotonic calibrator. 100% coverage.
 - `src/models/rollup.py` — Poisson-binomial PMF + GameHRDistribution dataclass. 100% coverage.
-- `src/models/pa_sequence.py` — per-PA probability sequence with TTO + bullpen scalars. 95% coverage (one NaN-guard unreachable under realistic inputs).
+- `src/models/per_game_hr.py` — per-game composition of per-matchup probabilities (see "Rollup semantic bug" section below). 100% coverage. Supersedes the original `pa_sequence.py`.
 - `phases/phase5/calibrate_runner.py` — end-to-end calibrator fit runner.
 - `phases/phase5/sanity_runner.py` — top/bottom 5 P(≥1 HR) sanity harness.
-- `tests/models/test_calibrate.py`, `test_rollup.py`, `test_pa_sequence.py` — unit coverage (controller-authored in earlier Phase 5 tasks).
+- `tests/models/test_calibrate.py`, `test_rollup.py`, `test_per_game_hr.py` — unit coverage.
 
 No changes to existing Phase 4 artifacts. Calibrator is strictly additive inside the model version dir.
+
+## Rollup semantic bug — fixed post-tag
+
+The first Phase 5 implementation treated the model's prediction as a
+per-PA probability and compounded via Poisson binomial over
+`round(projected_pa_count)` PAs. This was wrong — Phase 3's label
+`hr_on_pa` is per-(batter, pitcher, game), not per-PA, so the model's
+output is already a game-level matchup probability.
+
+Consequence: top predictions saturated at ~0.72 regardless of which
+player, because `1 - 0.75⁴ ≈ 0.68` for any `base_prob ≥ 0.25`. The
+sanity check flagged fringe players in the top-5 because "top-5" was
+essentially arbitrary within that 0.72 ceiling.
+
+Fixed by replacing `pa_sequence.py` with `per_game_hr.py`. New
+composition: `P(HR in game) = 1 - (1 - P_starter)(1 - P_bullpen)`
+when both known, else `P_starter` directly. Math in `rollup.py`
+(Poisson binomial) unchanged — the fix was only in how we feed it.
+
+See commit history for the fix narrative.

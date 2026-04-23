@@ -5,8 +5,13 @@ Usage:
     uv run python -u phases/phase5/sanity_runner.py
 
 Runs end-to-end on the test slice: raw Booster predict -> isotonic
-calibrate -> per-PA sequence (TTO for PAs 1-3, bullpen-adjusted for
-PAs 4+) -> Poisson-binomial roll-up to P(>=1 HR).
+calibrate -> per-game rollup via per_game_hr_distribution. Phase 3's
+`hr_on_pa` label is per-(batter, pitcher, game), so the model's
+calibrated output IS already the per-matchup game-level probability.
+We only predict vs the starter matchup row today, so P(>=1 HR) reduces
+to the starter's matchup probability (bullpen contribution is implicit
+in the matchup row's `bp_*` features). See `phases/phase5/NOTES.md`
+"Rollup semantic bug" for the full narrative.
 
 Joins matchup identity (game_pk, batter_id, pitcher_id, park_id) from
 matchup_features + player/park name lookups so the top/bottom rows
@@ -15,7 +20,6 @@ read like actual lineups.
 
 from __future__ import annotations
 
-import math
 import sys
 from pathlib import Path
 
@@ -31,20 +35,7 @@ from src.core.db import get_engine  # noqa: E402
 from src.models.artifacts import load_model  # noqa: E402
 from src.models.calibrate import apply_calibrator, load_calibrator  # noqa: E402
 from src.models.data import time_based_split  # noqa: E402
-from src.models.pa_sequence import PaSequenceInputs, build_pa_probability_sequence  # noqa: E402
-from src.models.rollup import per_game_probability  # noqa: E402
-
-
-def _nan_to_none(v: float | None) -> float | None:
-    """NaN -> None so pa_sequence's 'is None' guards fire correctly."""
-    if v is None:
-        return None
-    try:
-        if math.isnan(float(v)):
-            return None
-    except (TypeError, ValueError):
-        return None
-    return float(v)
+from src.models.per_game_hr import GameMatchupInputs, per_game_hr_distribution  # noqa: E402
 
 
 def main() -> int:
@@ -60,27 +51,16 @@ def main() -> int:
     raw = loaded.model.predict(dmat)
     cal = apply_calibrator(calibrator, raw)
 
-    needed = [
-        "p_tto_penalty",
-        "p_hr_per_9_season",
-        "bp_hr_per_9_season",
-        "ctx_projected_pa",
-    ]
-    seq_inputs = test.X[needed].copy().reset_index(drop=True)
-    seq_inputs["base_prob"] = cal
+    print(
+        "[note] starter-only composition; bullpen is implicit in the model's "
+        "matchup-level prediction.",
+        flush=True,
+    )
 
     p_at_least_one = np.empty(len(cal), dtype=np.float64)
-    for i, row in seq_inputs.iterrows():
-        projected_pa = _nan_to_none(row["ctx_projected_pa"])
-        inp = PaSequenceInputs(
-            base_prob=float(row["base_prob"]),
-            p_tto_penalty=_nan_to_none(row["p_tto_penalty"]),
-            p_hr_per_9_season=_nan_to_none(row["p_hr_per_9_season"]),
-            bp_hr_per_9_season=_nan_to_none(row["bp_hr_per_9_season"]),
-            projected_pa_count=projected_pa if projected_pa is not None else 4.0,
-        )
-        seq = build_pa_probability_sequence(inp)
-        p_at_least_one[i] = per_game_probability(seq).prob_at_least_one
+    for i in range(len(cal)):
+        dist = per_game_hr_distribution(GameMatchupInputs(starter_prob=float(cal[i])))
+        p_at_least_one[i] = dist.prob_at_least_one
 
     engine = get_engine()
     start, end = test.dates.min(), test.dates.max()

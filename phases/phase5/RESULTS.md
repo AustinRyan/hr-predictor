@@ -21,51 +21,51 @@ Reliability plot: `reports/phase5_reliability_pre_post.png` (overlay with y=x).
 
 ## Per-game probability distribution (test set, 140,506 rows)
 
+Numbers below are from `reports/phase5_sanity_v2.log` after the post-tag semantic-bug fix: the model's prediction is now correctly interpreted as a per-matchup game-level probability (not per-PA), so no Poisson-binomial compounding is applied. Composition reduces to `P(≥1 HR) = starter_prob` today (bullpen prediction path is Phase 6+ work; bullpen signal is already partially absorbed into the starter matchup row via `bp_*` features).
+
 | Stat    | P(≥1 HR) |
 | ---     | ---      |
-| min     | 0.000004 |
-| median  | 0.1503   |
-| max     | 0.7227   |
-| mean    | 0.1799   |
+| min     | 0.0000   |
+| median  | 0.0395   |
+| max     | 0.2222   |
+| mean    | 0.0487   |
 
-Mean 0.18 reflects the mix of typical per-PA probabilities (~0.04–0.05) rolled over ~4.2 projected PAs with TTO + bullpen amplification. League-wide HR/game-appearance is in this vicinity on prop-bet markets, so directionally reasonable.
+Mean 0.049 aligns closely with the training-set base rate (4.65%), which is exactly what we expect of a calibrated per-matchup game-level probability. Max 0.222 is the isotonic calibrator's val-observed ceiling (documented as a known gotcha in `src/models/overview.md`).
 
-The **max of 0.72** is above the PROMPT's 0.35–0.55 guide band. Root cause: the isotonic calibrator caps per-PA probabilities at its val-observed max (~0.222), and the PA-sequence bullpen adjustment can hit its 2.0× clip, so PA4 can reach ~0.30 per PA. Rolling 4 PAs at (0.15, 0.16, 0.18, 0.30) gives P(≥1) ≈ 0.60. That's the simplification's tail behavior, not a bug — documented in `NOTES.md`.
+The original (pre-fix) distribution had median 0.1503, max 0.7227, mean 0.1799 — the Poisson-binomial compounding was amplifying every matchup by ~4× and saturating the top tail at ~0.72. See `NOTES.md` "Rollup semantic bug — fixed post-tag" for the full narrative.
 
-## Sanity — top 5 predictions (test set)
-
-```
- game_date     batter_name    pitcher_name                    park_name  calibrated  p_at_least_one
-2025-05-28 alejandro osuna  paxton schultz             Globe Life Field    0.166667        0.722736
-2025-06-03    keibert ruiz    ryan pressly               Nationals Park    0.222222        0.722732
-2025-04-07      ryan bliss hayden wesneski                T-Mobile Park    0.165984        0.721039
-2025-05-23     josh naylor   miles mikolas                Busch Stadium    0.165984        0.721039
-2025-06-03     jake mangum      jacob latz George M. Steinbrenner Field    0.165984        0.721039
-```
-
-**Narrative.** These are predominantly fringe/regular MLB hitters, not Judge/Ohtani/Alonso. The root cause is that Phase 4's model has AUC = 0.68 (weak ranker; documented in `phases/phase4/RESULTS.md`), so elite sluggers and mid-tier regulars end up at similar per-PA raw probabilities — both around 0.20–0.24 in the right-tail of the distribution. Once calibration caps them at 0.222 and the bullpen clip kicks in for the 4th PA, ties proliferate near the max. Judge's own test-set max per-PA raw prediction is 0.228 (vs. Ruiz at 0.240 for the top-ranked matchup) — so the model does price Judge highly, just not at the very top of every slate.
-
-This is **a Phase-4 ranking-capacity limitation surfacing in a Phase-5 sanity check**, not a calibration or rollup defect. Carried as deferred tech debt for a future modeling pass (better pitcher interaction features, ensemble, or deeper trees).
-
-## Sanity — bottom 5 predictions (test set)
+## Sanity — top 5 predictions (test set, v2 — post-fix)
 
 ```
- game_date       batter_name     pitcher_name                park_name  calibrated  p_at_least_one
-2025-04-02      heliot ramos   rafael montero              Daikin Park         0.0        0.000004
-2025-04-14      miguel amaya      dylan cease               Petco Park         0.0        0.000004
-2025-04-28 francisco álvarez      colin poche           Nationals Park         0.0        0.000004
-2025-04-30       matt mclain      steven matz Great American Ball Park         0.0        0.000004
-2025-05-02         joey bart jeremiah estrada                 PNC Park         0.0        0.000004
+ game_date    batter_name    pitcher_name                    park_name  calibrated  p_at_least_one
+2025-04-27       ben rice  paxton schultz               Yankee Stadium    0.222222        0.222222
+2025-05-23      josh lowe  braydon fisher George M. Steinbrenner Field    0.222222        0.222222
+2025-05-28 christian koss    jackson jobe                Comerica Park    0.222222        0.222222
+2025-05-31     james wood  brandon pfaadt                  Chase Field    0.222222        0.222222
+2025-06-03      zach neto aroldis chapman                  Fenway Park    0.222222        0.222222
 ```
 
-**Narrative.** All five sit at the bottom of the calibrator's mapped range (calibrated per-PA ≈ 0.0). The 4e-6 P(≥1) reflects the per-PA `_MIN_PROB = 1e-6` floor rolled over 4 PAs. Directionally correct — weak matchups drive low predictions. Pitchers include both ace-caliber (Cease) and journeymen, so the relationship isn't strictly "ace dominates"; rather, it's that the *batter-side* features (cold, low-signal, early-season rows) are pulling the prediction toward zero.
+**Narrative.** The top-5 list is still a tie cluster at 0.222 — the isotonic calibrator's upper cap — but the composition is meaningfully more plausible than the original v1 (Osuna/Ruiz/Bliss/Naylor/Mangum). Ben Rice, Josh Lowe, James Wood, and Zach Neto are all real MLB power hitters; Jackson Jobe and Brandon Pfaadt are reasonable home-run-susceptible matchups. The tie cluster is a function of Phase 4's ranking capacity (AUC 0.68 + isotonic monotone piecewise-constant at the right tail) — an unchanged Phase-4-tech-debt caveat. The semantic fix does **not** solve the ranking compression; it only removes the 0.72 saturation artifact that was making the "top-5" comparison noisy.
+
+## Sanity — bottom 5 predictions (test set, v2 — post-fix)
+
+```
+ game_date     batter_name   pitcher_name                   park_name  calibrated  p_at_least_one
+2025-04-02 elly de la cruz   luke jackson    Great American Ball Park         0.0             0.0
+2025-04-14     aaron judge john schreiber              Yankee Stadium         0.0             0.0
+2025-04-28 brendan donovan  nick martínez    Great American Ball Park         0.0             0.0
+2025-04-30   trent grisham félix bautista Oriole Park at Camden Yards         0.0             0.0
+2025-05-02     connor wong  louis varland                 Fenway Park         0.0             0.0
+```
+
+**Narrative.** All five sit at the bottom of the calibrator's mapped range (calibrated ≈ 0.0 because the raw prediction fell below the val-set's lowest isotonic-bucket threshold). Aaron Judge appearing here is surprising; Schreiber is a high-leverage Red Sox reliever, but Judge in any matchup "rounds to zero" is a Phase-4 ranking-capacity symptom — not every Judge row clusters at the top, which confirms the per-matchup features dominate over batter identity at this model capacity. This is the same caveat surfaced in the v1 sanity narrative; removing the per-PA compounding didn't move it.
 
 ## Known Phase-5 simplifications
 
-- **Per-PA sequence uses single-inference + scalar TTO/bullpen adjustments** (`src/models/pa_sequence.py` docstring), not per-PA feature-row regeneration. Regenerating feature rows per PA slot would require swapping starter features for bullpen features in a way the model wasn't trained on; the scalar approach is faithful to training and simpler.
-- **Bullpen adjustment is clipped to [0.5, 2.0]** to prevent outlier scaling (e.g., Pressly's 0.37 HR/9 vs. 1.1 bullpen HR/9 would otherwise multiply by ~3.0).
+- **Per-game composition is starter-only today** (`src/models/per_game_hr.py`). The bullpen contribution is implicit in the starter matchup row's `bp_*` features rather than a separate model call. A Phase 6+ enhancement can synthesize a (batter, bullpen-representative) matchup row and combine via `1 - (1 - P_s)(1 - P_b)`; the `per_game_hr_distribution` function already supports that composition once a `bullpen_prob` is available.
 - **No ensemble.** Phase 4 pre-cal ECE was already 0.006; post-cal is 0.002. A second base model adds no measurable calibration headroom.
 - **Top-5 ranking is constrained by Phase-4 model AUC = 0.68.** Not a Phase-5 issue to fix; carried as deferred tech debt.
+- **Post-tag semantic bug fix.** The first Phase 5 implementation used a per-PA sequence with Poisson-binomial compounding (`pa_sequence.py`); that was wrong because Phase 3's `hr_on_pa` label is per-matchup, not per-PA. Replaced with `per_game_hr.py`. See `NOTES.md` for details.
 
 ## Config / artifact
 

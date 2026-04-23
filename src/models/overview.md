@@ -1,7 +1,7 @@
 # models
 
 ## Purpose
-Baseline XGBoost binary classifier for per-plate-appearance home-run probability, plus the evaluation + artifact-versioning framework that every future model swap will reuse. Phase 5 adds isotonic post-hoc calibration (`calibrate.py`), the per-PA probability sequence builder (`pa_sequence.py`) that turns one matchup row into PA-by-PA probabilities (TTO for PAs 1–3, bullpen-adjusted for PAs 4+), and the Poisson-binomial per-game roll-up (`rollup.py`) that maps PA-level probabilities to P(≥1), P(≥2), P(≥3), and the full PMF. Runs offline against the Phase 3 `matchup_features` store; emits a versioned artifact bundle (model binary + calibrator + schema + metrics + plots + eval report) into `src/models/registry/v{YYYYMMDD_HHMMSS}/`.
+Baseline XGBoost binary classifier for per-matchup (batter × pitcher × game) home-run probability, plus the evaluation + artifact-versioning framework that every future model swap will reuse. Phase 5 adds isotonic post-hoc calibration (`calibrate.py`), per-game composition of per-matchup probabilities (`per_game_hr.py`) via the independent-matchups formula `P(HR in game) = 1 - ∏(1 - P_matchup_i)`, and the Poisson-binomial machinery (`rollup.py`) that provides the exact PMF + `P(≥1)`, `P(≥2)`, `P(≥3)` breakdown used by the composition. Runs offline against the Phase 3 `matchup_features` store; emits a versioned artifact bundle (model binary + calibrator + schema + metrics + plots + eval report) into `src/models/registry/v{YYYYMMDD_HHMMSS}/`.
 
 Scope boundary: **no API** (Phase 6), **no daily inference pipeline** (Phase 6+).
 
@@ -12,8 +12,8 @@ Scope boundary: **no API** (Phase 6), **no daily inference pipeline** (Phase 6+)
 - **`eval.py`** — pure-function metrics + matplotlib plotters. `log_loss`, `brier_score`, `expected_calibration_error`, `reliability_curve`, `precision_at_top_k` (per-day semantics), `auc`, `naive_baseline_log_loss`, plus `plot_reliability`, `plot_feature_importance`, `plot_shap_summary`, `plot_prediction_histogram`.
 - **`artifacts.py`** — versioned persistence. `save_model(...) -> Path`, `load_model(version=None) -> LoadedModel`, `list_versions() -> list[ModelVersion]`, `promote_to_production(version)`, `compute_data_hash(X, y)`. Version IDs are `v{YYYYMMDD_HHMMSS}` (UTC). Production pointer is a plain-text file `registry/PRODUCTION` (not a symlink — Windows friendly).
 - **`calibrate.py`** — isotonic post-hoc calibrator. `fit_calibrator(val_probs, val_labels) -> IsotonicRegression`, `apply_calibrator(cal, raw_probs) -> ndarray`, `save_calibrator(cal, version) -> Path`, `load_calibrator(version) -> IsotonicRegression`. Calibrator lives at `src/models/registry/v{version}/calibrator.joblib` — co-located with the model to prevent version-mixing bugs.
-- **`pa_sequence.py`** — per-PA probability sequence for a matchup. `build_pa_probability_sequence(PaSequenceInputs) -> list[float]` takes a single calibrated per-PA base probability plus TTO / bullpen context columns and emits one probability per projected PA (TTO scaling for PAs 1–3 from `tto_multiplier`; clipped bullpen ratio for PAs 4+). Single-inference + scalar-adjustment design (see `phases/phase5/NOTES.md` for the rationale; per-PA feature-row regeneration would be out-of-distribution).
-- **`rollup.py`** — exact Poisson-binomial PMF + per-game rollup. `poisson_binomial_pmf(probs) -> list[float]` via direct convolution (O(n²), n ≤ 10 in baseball); `per_game_probability(probs) -> GameHRDistribution` exposes `prob_at_least_one`, `prob_at_least_two`, `prob_at_least_three`, `expected_hrs`, and `pmf`. No Poisson approximation — per-PA probs vary enough across starter/bullpen that the Poisson assumption breaks.
+- **`per_game_hr.py`** — per-game composition of per-matchup probabilities. `per_game_hr_distribution(GameMatchupInputs) -> GameHRDistribution` composes the starter-matchup probability (and optionally a bullpen-matchup probability) into a game-level distribution via the independent-matchups formula. Phase 3's label `hr_on_pa` is per-(batter, pitcher, game), so the model's calibrated output is already a per-matchup game-level probability — no PA-level compounding is applied. Replaces the original `pa_sequence.py` (see `phases/phase5/NOTES.md` "Rollup semantic bug" for the fix narrative).
+- **`rollup.py`** — exact Poisson-binomial PMF + per-game distribution. `poisson_binomial_pmf(probs) -> list[float]` via direct convolution (O(n²), near-instant for the small inputs we feed it); `per_game_probability(probs) -> GameHRDistribution` exposes `prob_at_least_one`, `prob_at_least_two`, `prob_at_least_three`, `expected_hrs`, and `pmf`. The math is unchanged from the original Phase 5 implementation — it's correct for combining any independent-event probabilities; `per_game_hr.py` now feeds it 1–2 per-matchup probabilities instead of the originally-incorrect 4 per-PA copies.
 
 ## Public interface
 
@@ -25,7 +25,7 @@ from src.models.data import FEATURE_COLUMNS, FeatureFrame, load_training_data, t
 from src.models.eval import log_loss, brier_score, expected_calibration_error, precision_at_top_k
 from src.models.train import TrainingConfig, TrainingResult, train_baseline
 from src.models.calibrate import fit_calibrator, apply_calibrator, save_calibrator, load_calibrator
-from src.models.pa_sequence import PaSequenceInputs, build_pa_probability_sequence
+from src.models.per_game_hr import GameMatchupInputs, per_game_hr_distribution
 from src.models.rollup import per_game_probability, poisson_binomial_pmf, GameHRDistribution
 ```
 
@@ -38,8 +38,9 @@ loaded = load_model()                          # latest or version=...
 cal = load_calibrator(loaded.version)          # co-located with model
 dmat = xgboost.DMatrix(X.values, feature_names=loaded.feature_schema)
 raw = loaded.model.predict(dmat)
-calibrated = apply_calibrator(cal, raw)        # per-PA HR probability
-# then for each matchup row: build_pa_probability_sequence(...) → per_game_probability(...)
+calibrated = apply_calibrator(cal, raw)        # per-matchup (per batter-pitcher-game) HR probability
+# then for each matchup row: per_game_hr_distribution(GameMatchupInputs(starter_prob=calibrated[i]))
+# when a bullpen prediction is available (Phase 6+): pass bullpen_prob=... to combine via 1 - (1-P_s)(1-P_b).
 ```
 
 ## Internal dependencies
@@ -86,7 +87,6 @@ src/models/registry/v{YYYYMMDD_HHMMSS}/
 - **Determinism:** `random_seed=42` flows to python `random`, `numpy`, XGBoost `random_state`. `PYTHONHASHSEED` is **not** set (makes tests fragile) — the models pipeline avoids hash-dependent ops.
 - **`save_model` is atomic-ish**: plots are written into a `tempfile.TemporaryDirectory`, then copied into the version dir in one pass. Partial saves should not appear on disk.
 - **Calibrator is strictly additive inside the version dir.** `save_calibrator` never overwrites `model.xgb` or `training_metadata.json`; it only writes `calibrator.joblib`. Safe to re-fit and re-save without invalidating the model artifact. The `IsotonicRegression` is fit with `out_of_bounds="clip"` so test-time raw probabilities outside the val-observed range clip to the nearest endpoint (no silent extrapolation).
-- **Isotonic caps the calibrated range.** On this data the calibrated per-PA probability maxes out at ~0.222 (val's observed right tail). Downstream callers should expect clustering at that cap for the highest-raw matchups; it's isotonic's piecewise-constant behavior, not a bug.
-- **`build_pa_probability_sequence` divides `base_prob` by `p_tto_penalty`** to recover a "pure" per-PA prob before re-applying per-PA multipliers. `base_prob` is assumed to be the model's prediction on the matchup feature row (which already has `p_tto_penalty` as a weighted-average starter multiplier baked in). The default TTO penalty (1.0833, the training-data constant) is used when the row's `p_tto_penalty` is missing.
-- **Bullpen adjustment is clipped to [0.5, 2.0]** — see `_BULLPEN_ADJ_MIN` / `_BULLPEN_ADJ_MAX` in `pa_sequence.py` and the rationale in `phases/phase5/NOTES.md`. Without the clip, an extreme starter-vs-bullpen HR/9 ratio (e.g., Pressly) would yield physically-implausible 3×+ scaling on PA4 probs.
-- **`poisson_binomial_pmf` is exact, not approximate.** O(n²) convolution on n ≤ 10 PAs is ~instant (<0.1ms per matchup in Python). The Poisson approximation is tempting but wrong here: per-PA probabilities vary enough (TTO multipliers, bullpen transition) that the Poisson mean-equals-variance assumption breaks.
+- **Isotonic caps the calibrated range.** On this data the calibrated per-matchup probability maxes out at ~0.222 (val's observed right tail). Downstream callers should expect clustering at that cap for the highest-raw matchups; it's isotonic's piecewise-constant behavior, not a bug.
+- **`per_game_hr_distribution` does not compound per-PA.** The model's calibrated output is already a per-matchup game-level probability (Phase 3 `hr_on_pa` is per-batter-pitcher-game, not per-PA). With only a starter prediction, `P(≥1 HR) == starter_prob`. With both starter and bullpen predictions, they combine via `1 - (1 - P_s)(1 - P_b)`. See `phases/phase5/NOTES.md` "Rollup semantic bug — fixed post-tag" for the history behind this correction.
+- **`poisson_binomial_pmf` is exact, not approximate.** Reused by `per_game_hr_distribution` to produce the full PMF over 1–2 per-matchup probabilities (starter + optional bullpen). O(n²) convolution with small n is effectively free. The math works for any independent-Bernoulli composition; it's the same tool whether you feed it per-PA probabilities or per-matchup probabilities.

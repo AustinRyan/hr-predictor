@@ -18,16 +18,16 @@ See `RESULTS.md` for the full pre/post metric table and `NOTES.md` for the calib
 - [x] **`per_game_probability` returns values where P(≥1) + P(0) ≈ 1.0** (floating-point). Verified by `test_per_game_prob_at_least_one_plus_p_zero_is_one` in `tests/models/test_rollup.py`.
 - [x] **`poisson_binomial_pmf` passes all test cases.** 9 unit tests in `tests/models/test_rollup.py` covering empty, single, Pascal's-triangle (`[0.5, 0.5]` → `[0.25, 0.5, 0.25]`), all-zeros, all-ones, mixed, out-of-range rejection, sums-to-one invariant.
 - [x] **For 4 projected PAs at 0.05 per-PA probability: P(≥1) ≈ 0.185** (exactly `1 − 0.95^4 = 0.18549375`). Verified by `test_per_game_four_pas_at_5_percent` in `tests/models/test_rollup.py`.
-- [x] **`build_pa_probability_sequence` produces increasing p for PAs 1→3 (TTO penalty) when facing an average starter.** Verified by unit tests in `tests/models/test_pa_sequence.py` — PA1 uses multiplier 1.00, PA2 = 1.05, PA3 = 1.20. Bullpen transition for PA4+ uses clipped bp/p ratio.
+- [x] **`per_game_hr_distribution` composes per-matchup probabilities correctly.** Verified by unit tests in `tests/models/test_per_game_hr.py` — starter-only returns `P(≥1) == starter_prob`; starter + bullpen combines via `1 - (1 - P_s)(1 - P_b)`; monotone in each component; multi-HR probs satisfy `P(≥1) ≥ P(≥2) ≥ P(≥3)`. (Supersedes the original `build_pa_probability_sequence` check after the post-tag semantic-bug fix — see `NOTES.md` "Rollup semantic bug".)
 
 ## Sanity: the "it works" test
 
-- [~] **Highest P(≥1 HR) belongs to a known elite slugger in a homer-friendly context.** Top-5 sanity output (`reports/phase5_sanity.log`, cited in `RESULTS.md`) shows: Osuna, Ruiz, Bliss, Naylor, Mangum — all around P(≥1) ≈ 0.72. These are **not** the classic elite sluggers (Judge/Ohtani/Alonso). Diagnosis in `NOTES.md` → **"Ranking capacity is the limiting factor"**: the Phase 4 model's AUC is 0.68, which caps elite-vs-fringe separation; Judge's own max test-set raw prob (0.228) is only marginally above Ruiz's (0.240 for that specific matchup). This is a **Phase-4 ranking/capacity limitation surfacing in a Phase-5 sanity check**, not a calibration or rollup bug. Carried as deferred technical debt to a later modeling pass.
-- [~] **Lowest P(≥1 HR) belongs to a weak hitter facing an ace / pitcher park.** Bottom-5 shows Ramos, Amaya, Álvarez, McLain, Bart with P(≥1) ≈ 4e-6. Calibrated per-PA prob is effectively 0.0 for these — they're at the low edge of the isotonic map. The pitchers (Montero, Cease, Poche, Matz, Estrada) range from "ace-ish" to "journeyman"; parks are a mix. Model correctly funnels low-signal matchups to near-zero, which is the right-directional behavior.
-- [~] **P(≥1 HR) for a superstar on an ideal day ≥ 0.35.** Not independently checked — Phase 5 scope is "did the rollup pipeline work end-to-end on the test set," not "cherry-pick a superstar-at-Coors scenario." Judge's best raw prediction in the test set is 0.228 per PA; with 4 PAs and TTO that rolls up to well above 0.35.
-- [~] **P(≥1 HR) for a weak hitter facing an ace in a pitcher's park ≤ 0.03.** Bottom-5 sanity shows calibrated per-PA = 0.0 → P(≥1) = 4e-6, which is far below 0.03. Directionally correct.
+- [~] **Highest P(≥1 HR) belongs to a known elite slugger in a homer-friendly context.** Post-fix top-5 sanity output (`reports/phase5_sanity_v2.log`, cited in `RESULTS.md`) is a tie cluster at the isotonic calibrator's 0.222 cap: Ben Rice, Josh Lowe, Christian Koss, James Wood, Zach Neto. Meaningfully more plausible than the pre-fix v1 (Osuna, Ruiz, Bliss, Naylor, Mangum at ~0.72) but still not dominated by Judge/Ohtani/Alonso. Root cause unchanged: Phase 4's model AUC = 0.68 compresses elite-vs-mid-tier into the same right-tail bucket; carried as deferred technical debt to a future modeling pass.
+- [~] **Lowest P(≥1 HR) belongs to a weak hitter facing an ace / pitcher park.** Post-fix bottom-5 shows Elly De La Cruz, Aaron Judge, Brendan Donovan, Trent Grisham, Connor Wong — all at P(≥1) = 0.0 because the raw prediction fell below the isotonic calibrator's lowest val-set threshold. Aaron Judge appearing here is a Phase-4 ranking-capacity symptom (per-matchup features dominate over batter identity at this model capacity), not a rollup defect.
+- [~] **P(≥1 HR) for a superstar on an ideal day ≥ 0.35.** **Not met post-fix** — the calibrator caps per-matchup probability at 0.222 (val's observed right tail), so no single-matchup prediction can exceed that today. Would require either (a) adding a bullpen-matchup prediction (Phase 6+), after which `1 - (1-0.22)(1-0.22) = 0.39` becomes reachable, or (b) refitting calibration on a larger val window so isotonic sees higher-raw buckets. The original v1 passed this bar only because it was compounding per-PA and saturating at 0.72, which was the semantic bug that this fix resolves.
+- [~] **P(≥1 HR) for a weak hitter facing an ace in a pitcher's park ≤ 0.03.** Post-fix bottom-5 is P(≥1) = 0.0, well below 0.03. Directionally correct.
 
-**Distribution summary:** min = 4e-6, median = 0.1503, max = 0.7227, mean = 0.1799 across 140,506 test-set matchup rows. The max is above the 0.35–0.55 guide band in the PROMPT, driven by the bullpen adjustment being clipped at 2.0× for PA4+ stacking on top of an already-ceilinged calibrated per-PA prob (0.222 isotonic max). Not a pipeline defect — it's the tail behavior of the simplification.
+**Post-fix distribution summary:** min = 0.0, median = 0.0395, max = 0.2222, mean = 0.0487 across 140,506 test-set matchup rows. Mean aligns closely with the 4.65% training base rate, which is exactly what we expect of a correctly-interpreted per-matchup game-level probability. Max 0.222 is the isotonic calibrator's cap. Pre-fix distribution (median 0.1503, max 0.7227, mean 0.1799) was inflated by the incorrect per-PA Poisson-binomial compounding.
 
 ## Optional ensemble
 
@@ -36,21 +36,21 @@ See `RESULTS.md` for the full pre/post metric table and `NOTES.md` for the calib
 ## Tests
 
 - [x] **`uv run pytest tests/models -v` all pass.** Part of the full suite.
-- [x] **Full suite** `uv run pytest -q` — **243 passed, 1 skipped** pre-commit.
-- [x] **Coverage on new code ≥80%.** `calibrate.py` 100%, `rollup.py` 100%, `pa_sequence.py` 95% (line 57 is a NaN-guard that's unreachable under a reasonable input).
+- [x] **Full suite** `uv run pytest -q` — **240 passed, 1 skipped** post-fix (was 243 pre-fix; net −3 from removing 10 `pa_sequence` tests and adding 8 `per_game_hr` tests, plus one test that was inseparable from the old API).
+- [x] **Coverage on new code ≥80%.** `calibrate.py` 100%, `rollup.py` 100%, `per_game_hr.py` 100%.
 - [x] **Ruff clean.**
 
 ## Docs
 
 - [x] `phases/phase5/RESULTS.md` shows pre/post calibration metrics and distribution summary.
 - [x] `phases/phase5/NOTES.md` explains the no-ensemble decision, the ranking-capacity caveat, and the bullpen-clip tail behavior.
-- [x] `src/models/overview.md` updated with sections on `calibrate.py`, `rollup.py`, `pa_sequence.py`.
+- [x] `src/models/overview.md` updated with sections on `calibrate.py`, `rollup.py`, `per_game_hr.py`.
 - [x] `abstract.md` marks Phase 5 complete (tag-pending controller).
 
 ## Phase-5 gates — overall
 
-- **Gate 1a (pytest full suite):** 243 passed, 1 skipped.
-- **Gate 1b (coverage on new code):** calibrate 100%, rollup 100%, pa_sequence 95%.
+- **Gate 1a (pytest full suite):** 240 passed, 1 skipped (post-fix).
+- **Gate 1b (coverage on new code):** calibrate 100%, rollup 100%, per_game_hr 100%.
 - **Gate 1c (ruff):** All checks passed.
 - **Gate 2a (end-to-end calibrate run):** `calibrate_runner.py` completes in 18.3 s; writes calibrator + reliability plot.
 - **Gate 2b (sanity rollup):** `sanity_runner.py` runs end-to-end on 140,506 test rows; top/bottom 5 produced; directional sanity passes (elite sluggers NOT at top is documented as Phase-4 ranking limitation, not a bug).
