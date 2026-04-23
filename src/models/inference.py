@@ -108,8 +108,13 @@ def generate_predictions_for_date(
     raw_probs = loaded.model.predict(dmat)
     cal_probs = apply_calibrator(calibrator, raw_probs) if calibrator else raw_probs
 
-    # SHAP top-k feature contributions per row. TreeExplainer on tree models
-    # returns (n_rows, n_features) array of SHAP values; top-k by absolute value.
+    # SHAP top-k feature contributions per row. We prefer `shap.TreeExplainer`,
+    # but it fails on some Booster metadata formats in XGBoost 2.x/3.x (see
+    # abstract.md). Fallback to XGBoost's native `pred_contribs=True`, which
+    # returns the same TreeSHAP output as an (n_rows, n_features + 1) array
+    # where the last column is the bias term. Strip it and we have an
+    # equivalent SHAP values matrix.
+    shap_values: np.ndarray | None
     try:
         explainer = shap.TreeExplainer(loaded.model)
         shap_values = explainer.shap_values(feat_df)
@@ -117,10 +122,19 @@ def generate_predictions_for_date(
             shap_values = shap_values[0]
     except Exception as exc:  # noqa: BLE001
         _log.warning(
-            "SHAP failed, predictions will have empty contributions",
+            "SHAP TreeExplainer failed, falling back to Booster.pred_contribs",
             extra={"err": str(exc)},
         )
-        shap_values = None
+        try:
+            contribs = loaded.model.predict(dmat, pred_contribs=True)
+            # Drop trailing bias column
+            shap_values = np.asarray(contribs[:, :-1])
+        except Exception as exc2:  # noqa: BLE001
+            _log.warning(
+                "pred_contribs fallback also failed; predictions will have empty contributions",
+                extra={"err": str(exc2)},
+            )
+            shap_values = None
 
     # Assemble prediction rows
     generated_at = datetime.now(UTC)

@@ -1,9 +1,9 @@
 # HR Predictor — Abstract
 
-**Updated:** 2026-04-22 — end of Phase 5 (post-tag rollup semantic-bug fix applied)
+**Updated:** 2026-04-23 — end of Phase 6
 
 ## Current phase
-**Phase 6 — FastAPI backend** — not started.
+**Phase 7 — Next.js frontend** — not started.
 
 ## Project elevator pitch
 Per-game MLB home-run probability predictor for prop-betting decision support. Local-first Python/Next.js stack. Trained on Statcast 2021–present. Calibration-first evaluation (Brier, ECE, reliability curves). Phased development; context clears between phases.
@@ -14,8 +14,8 @@ Per-game MLB home-run probability predictor for prop-betting decision support. L
 - [x] Phase 2 — Daily operational ingestion (tag: `phase-2-complete`)
 - [x] Phase 3 — Feature engineering (tag: `phase-3-complete`)
 - [x] Phase 4 — Baseline model + evaluation framework (tag: `phase-4-complete`)
-- [x] Phase 5 — Calibration + per-game rollup (tag: pending controller review)
-- [ ] Phase 6 — FastAPI backend
+- [x] Phase 5 — Calibration + per-game rollup (tag: `phase-5-complete` + `phase-5.5-complete`)
+- [x] Phase 6 — FastAPI backend (tag: pending controller review)
 - [ ] Phase 7 — Next.js frontend
 - [ ] Phase 8 — LangGraph explanation agent (optional)
 
@@ -101,8 +101,20 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **No ensemble.** Phase-4 pre-cal ECE was already 0.006; post-cal is 0.002. A second base model adds complexity without measurable calibration gain. The PROMPT framed ensemble as "only if single model misses the bar" — the single model hit the bar 12× over.
 - **Sanity-check ranking caveat carried as Phase-4 tech debt.** Post-fix max P(≥1 HR) is 0.222 (the isotonic calibrator's val-observed ceiling), distribution mean 0.049 (close to the 4.65% base rate, as expected of a properly calibrated per-matchup probability). The top-5 tie cluster at 0.222 still does not cleanly identify elite sluggers (root cause: Phase-4 AUC = 0.68 compressing mid-tier regulars and elite sluggers into the same right-tail raw-probability bucket). Deferred to a future modeling pass. See `phases/phase5/RESULTS.md` and `NOTES.md` for the full narrative.
 
+### Phase 6 decisions
+- **Migration `0006_predictions`** (PROMPT said `0004`; 0004 is Phase 3's `feature_store`, 0005 is Phase 3.5's `weather_archive`). Creates `predictions(id, game_pk, batter_id, pitcher_id, game_date, model_version, matchup_components jsonb, projected_pas, prob_at_least_one_hr, prob_at_least_two_hr, expected_hrs, feature_contributions jsonb, generated_at)` with unique `(game_pk, batter_id, model_version)` + indexes on `(game_date, prob_at_least_one_hr DESC)`, `(batter_id, game_date)`, `(game_pk)`.
+- **`matchup_components` jsonb replaces the PROMPT's `per_pa_probabilities`**. Per Phase 5.5 the model output is per-matchup, not per-PA. Stores `{starter_raw_prob, starter_calibrated_prob, bullpen_raw_prob=null, bullpen_calibrated_prob=null}`. Bullpen fields reserved for a Phase 7+ training extension that predicts batter-vs-bullpen separately.
+- **No bullpen prediction path yet** — `P_game == starter_calibrated_prob` today. The composition layer (`per_game_hr_distribution`) already accepts a bullpen term; adding it is training-side work.
+- **FastAPI app factory with lifespan** loads model + calibrator once at startup into `app.state`. `src.api.main:app` (not `api.main:app` — src-layout).
+- **5 routers:** `/health`, `/picks/today`, `/player/{mlbam_id}`, `/matchup/{game_pk}/{batter_id}`, `/model/metrics`. Pydantic response models throughout; no raw dict returns.
+- **Redis caching** via `@cached(ttl_seconds, key_prefix)` decorator. Cache keys hash all function args + the current production model version, so a new model deployment naturally invalidates. Redis failures degrade gracefully to direct execution + warning log. Tested via `tests/api/test_cache.py` (both cache-hit inspection and Redis-down simulation).
+- **SHAP fallback to `Booster.pred_contribs=True`** when `shap.TreeExplainer` fails (XGBoost 3.x Booster metadata parses a base_score like `'[4.651061E-2]'` which `shap==0.49.1` can't parse). Native XGBoost SHAP returns identical TreeSHAP values; log warning and continue. Verified in production inference on the 135-row 2026-04-23 batch.
+- **Today's inference (2026-04-23):** 135 predictions, mean P(≥1 HR) = 0.051 (matches 4.65% base rate), top-5 all legitimate power hitters (Laureano, Sánchez, Marte, Harper, Ohtani) — Phase 5.5's semantic fix is paying off visibly compared to the earlier Osuna/Bliss cluster.
+- **Endpoint latencies all 10× under acceptance bars:** `/picks/today` cold 8.9ms / warm 0.9ms (bars: 500ms / 50ms); `/matchup` 9ms (bar: 1s); `/model/metrics` 7.5ms; `/health` 23.5ms.
+- **Rolling-live metrics are empty today** — no historical predictions yet. `/model/metrics` returns `n_predictions=0` gracefully; it'll populate organically as daily inference accumulates.
+
 ## Open questions / decisions pending
-- None blocking Phase 6.
+- None blocking Phase 7.
 
 ## Open bugs / technical debt
 - **`launch_speed` null-rate threshold in Phase 1 PROMPT is misframed.** (Carried from Phase 2.) Phase 3 feature-engineering now handles this correctly via ball-in-play-conditional FILTERs.
@@ -115,4 +127,4 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **`sanity_runner.py` relies on row-order alignment** between `time_based_split`'s `X` and a re-query of `matchup_features` with the same filters. Stable in practice but not formally guaranteed. A future small refactor can plumb `(game_pk, batter_id, pitcher_id)` through `FeatureFrame.metadata` to make alignment explicit.
 
 ## Next action
-Controller applies `phase-5-complete` tag after final review. Phase 6 (`phases/phase6/PROMPT.md`) covers the FastAPI backend.
+Controller applies `phase-6-complete` tag after review. Phase 7 (`phases/phase7/PROMPT.md`) covers the Next.js frontend.
