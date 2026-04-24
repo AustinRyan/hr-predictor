@@ -4,11 +4,10 @@ import { useEffect, useRef } from "react";
 
 type DamageEvent = { at: number; k: string; v: string };
 const DAMAGE_DATA: readonly DamageEvent[] = [
-  { at: 0.08, k: "EXIT VELOCITY", v: "108.3 MPH" },
-  { at: 0.24, k: "LAUNCH ANGLE", v: "28.4°" },
-  { at: 0.44, k: "WIND VECTOR", v: "↗ 11 MPH" },
-  { at: 0.62, k: "PARK FACTOR", v: "+6%" },
-  { at: 0.80, k: "CARRY", v: "+1.4 MPH" },
+  { at: 0.1, k: "EXIT VELOCITY", v: "108.3 MPH" },
+  { at: 0.3, k: "LAUNCH ANGLE", v: "28.4°" },
+  { at: 0.55, k: "WIND VECTOR", v: "↗ 11 MPH" },
+  { at: 0.8, k: "CARRY", v: "+1.4 MPH" },
 ] as const;
 
 const TRAIL_LEN = 10;
@@ -20,7 +19,6 @@ const TRAIL_STRIDE = 44;
 // so 52 reads as ~40–50 CSS px on a typical laptop viewport. Doubled from
 // the original 22 because the stitching was invisible at that scale.
 const BALL_R = 52;
-const SVG_NS = "http://www.w3.org/2000/svg";
 
 function clamp(v: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, v));
@@ -45,7 +43,6 @@ export function Arc() {
   const ballRef = useRef<SVGGElement | null>(null);
   const shadowRef = useRef<SVGEllipseElement | null>(null);
   const trailRef = useRef<SVGGElement | null>(null);
-  const damageRef = useRef<SVGGElement | null>(null);
   const blurStdRef = useRef<SVGFEGaussianBlurElement | null>(null);
   const streakGRef = useRef<SVGGElement | null>(null);
   const streakLineRef = useRef<SVGLineElement | null>(null);
@@ -65,7 +62,6 @@ export function Arc() {
     const ball = ballRef.current;
     const shadow = shadowRef.current;
     const trail = trailRef.current;
-    const damageLayer = damageRef.current;
     const blurStd = blurStdRef.current;
     const streakG = streakGRef.current;
     const streakLine = streakLineRef.current;
@@ -76,32 +72,77 @@ export function Arc() {
     const finale = finaleRef.current;
     const finaleVal = finaleValRef.current;
 
-    if (!stage || !path || !ball || !shadow || !trail || !damageLayer || !blurStd ||
+    if (!stage || !path || !ball || !shadow || !trail || !blurStd ||
         !streakG || !streakLine || !batter || !contactFlash || !crowd || !lights ||
         !finale || !finaleVal) {
       return;
     }
+
+    const pin = stage.querySelector<HTMLDivElement>(":scope > .arc-pin");
+    if (!pin) return;
 
     const totalLen = path.getTotalLength();
     const pathLen = 1000;
 
     type TrailPt = { x: number; y: number };
     const trailBuf: TrailPt[] = [];
-    const damageFired = new Array(DAMAGE_DATA.length).fill(false);
+    // Per-threshold last-fire timestamp (ms). Used for a cooldown so
+    // damages re-fire on reverse-scroll crossings without spamming.
+    const damageLastFire = new Array(DAMAGE_DATA.length).fill(0);
+    const DAMAGE_COOLDOWN_MS = 1200;
+    const DAMAGE_WINDOW = 0.025;
     let swingFired = false;
     let finaleFired = false;
     let prevPt = path.getPointAtLength(0);
     let lastProgress = 0;
+    let activeDamage: HTMLElement | null = null;
 
     const spawnDamage = (x: number, y: number, k: string, v: string): void => {
-      const g = document.createElementNS(SVG_NS, "g");
-      g.setAttribute("class", "damage");
-      g.setAttribute("transform", `translate(${x},${y})`);
-      g.innerHTML = `<text class="d-k" y="-22">${k}</text><text class="d-v" y="0">${v}</text>`;
-      damageLayer.appendChild(g);
+      // Damage numbers render as HTML <div>s with `position: fixed` at
+      // the document body. Why not SVG text or absolute-inside-arc-pin?
+      // After extensive Playwright inspection, both paths hit Chromium
+      // compositor bugs: elements added mid-scroll inside a `sticky`
+      // container don't get rasterized even when computed styles report
+      // full opacity + valid bboxes. Rendering on the body with `fixed`
+      // positioning sidesteps the whole sticky-context ordeal. When the
+      // arc-pin is on screen, fixed positioning already equals what we
+      // want (pinned to the viewport), and when the user scrolls past
+      // the arc the damage gets auto-removed by the 2700ms timeout.
+      if (!pin) return;
+      const pinRect = pin.getBoundingClientRect();
+      // Only spawn if the pin is actually in the viewport.
+      if (pinRect.bottom < 0 || pinRect.top > window.innerHeight) return;
+      const cssX = pinRect.left + (x / 1600) * pinRect.width;
+      const cssY = pinRect.top + (y / 900) * pinRect.height;
+
+      // Only one damage visible at a time — retire any predecessor before
+      // its tail fade completes so WIND and PARK (close in time) don't
+      // stack on top of each other.
+      if (activeDamage) {
+        const prev = activeDamage;
+        prev.classList.add("arc-damage-out");
+        window.setTimeout(() => {
+          if (prev.parentNode) prev.parentNode.removeChild(prev);
+        }, 500);
+      }
+
+      const el = document.createElement("div");
+      el.className = "arc-damage";
+      el.style.left = `${cssX}px`;
+      el.style.top = `${cssY}px`;
+      el.innerHTML =
+        `<div class="arc-damage-k">${k}</div>` +
+        `<div class="arc-damage-v">${v}</div>`;
+      document.body.appendChild(el);
+      activeDamage = el;
+
       window.setTimeout(() => {
-        if (g.parentNode) g.parentNode.removeChild(g);
-      }, 2400);
+        if (el === activeDamage) el.classList.add("arc-damage-out");
+      }, 2000);
+      window.setTimeout(() => {
+        if (el.parentNode) el.parentNode.removeChild(el);
+        if (el === activeDamage) activeDamage = null;
+      }, 2700);
     };
 
     const renderTrail = (): void => {
@@ -169,6 +210,7 @@ export function Arc() {
       const rect = stage.getBoundingClientRect();
       const stageH = rect.height - window.innerHeight;
       const rawProgress = clamp(-rect.top / stageH, 0, 1);
+      const prevRaw = lastProgress;
       const progress = physicsWarp(rawProgress);
 
       path.setAttribute("stroke-dashoffset", String((1 - rawProgress) * pathLen));
@@ -224,13 +266,25 @@ export function Arc() {
         batter.classList.remove("show", "swung");
       }
 
+      // Bidirectional damage firing: a threshold fires whenever progress
+      // crosses it in EITHER direction, with a per-threshold cooldown so
+      // scrubbing past the same line doesn't spam the viewport. This
+      // makes reverse-scroll replay EV/LA/WIND/PARK/CARRY as the user
+      // scrolls back up through the arc.
+      const now = performance.now();
+      const dp = Math.abs(rawProgress - prevRaw);
       for (let i = 0; i < DAMAGE_DATA.length; i++) {
         const d = DAMAGE_DATA[i];
-        if (!damageFired[i] && rawProgress >= d.at) {
+        const crossed =
+          (prevRaw < d.at && rawProgress >= d.at) ||
+          (prevRaw > d.at && rawProgress <= d.at) ||
+          // Also fire when we "teleport" (big scroll jump) into the
+          // threshold's neighborhood for the first time.
+          (dp > 0.15 && Math.abs(rawProgress - d.at) < DAMAGE_WINDOW);
+        if (crossed && now - damageLastFire[i] > DAMAGE_COOLDOWN_MS) {
           spawnDamage(pt.x, pt.y, d.k, d.v);
-          damageFired[i] = true;
+          damageLastFire[i] = now;
         }
-        if (damageFired[i] && rawProgress < d.at - 0.05) damageFired[i] = false;
       }
 
       if (rawProgress > 0.88 && !finaleFired) fireFinale();
@@ -289,37 +343,90 @@ export function Arc() {
 
           <div className="batter" ref={batterRef} aria-hidden="true">
             <svg viewBox="0 0 120 220" preserveAspectRatio="xMidYMax meet">
-              {/* Bat — barrel + taper + grip + knob. Swings via #bat-swing transform. */}
+              <defs>
+                {/* Wood-grain gradient for the bat: lighter at barrel end,
+                    darker at handle — ash/maple color range. */}
+                <linearGradient id="batWood" x1="0" y1="-65" x2="0" y2="30" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stopColor="#b6823d" />
+                  <stop offset="35%" stopColor="#8f5a24" />
+                  <stop offset="70%" stopColor="#5a3612" />
+                  <stop offset="100%" stopColor="#2a1808" />
+                </linearGradient>
+                <linearGradient id="batShine" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="rgba(255,255,255,0)" />
+                  <stop offset="50%" stopColor="rgba(255,240,210,.25)" />
+                  <stop offset="100%" stopColor="rgba(255,255,255,0)" />
+                </linearGradient>
+                <radialGradient id="helmetDome" cx="40%" cy="25%">
+                  <stop offset="0%" stopColor="rgba(255,255,255,.14)" />
+                  <stop offset="70%" stopColor="rgba(255,255,255,0)" />
+                </radialGradient>
+              </defs>
+
+              {/* BAT + HANDS — swing group, rotates around (60, 44) per CSS. */}
               <g id="bat-swing">
-                <rect x="57" y="-40" width="7" height="80" rx="3" fill="#1a0f08" stroke="#0a0a0a" strokeWidth="0.8" />
-                <rect x="56" y="-58" width="10" height="18" rx="2" fill="#3a2a1a" />
-                <rect x="54" y="-62" width="14" height="6" rx="2" fill="#0a0a0a" />
-                {/* grip wrap */}
-                <line x1="56" y1="-52" x2="66" y2="-52" stroke="#0a0a0a" strokeWidth="0.8" />
-                <line x1="56" y1="-46" x2="66" y2="-46" stroke="#0a0a0a" strokeWidth="0.8" />
+                {/* Barrel (thickest end, farthest from hands) */}
+                <path d="M 60 -68 Q 55 -68 55 -62 L 56 -10 Q 56 -6 60 -6 Q 64 -6 64 -10 L 65 -62 Q 65 -68 60 -68 Z"
+                      fill="url(#batWood)" stroke="#0a0604" strokeWidth="0.4" />
+                {/* Shine highlight along barrel */}
+                <rect x="57" y="-60" width="6" height="52" fill="url(#batShine)" opacity="0.4" />
+                {/* Taper into handle */}
+                <path d="M 56 -10 L 64 -10 L 63 8 L 57 8 Z" fill="url(#batWood)" />
+                {/* Grip tape */}
+                <rect x="58" y="8" width="4" height="20" fill="#1a0f06" />
+                {/* Grip wrap lines */}
+                <line x1="58" y1="12" x2="62" y2="12" stroke="#3a2a18" strokeWidth="0.5" />
+                <line x1="58" y1="17" x2="62" y2="17" stroke="#3a2a18" strokeWidth="0.5" />
+                <line x1="58" y1="22" x2="62" y2="22" stroke="#3a2a18" strokeWidth="0.5" />
+                {/* Knob */}
+                <ellipse cx="60" cy="29" rx="4" ry="2" fill="#0a0604" />
+
+                {/* Hands / batting gloves — sit ON the grip, rotate with bat. */}
+                <path d="M 50 38 Q 46 48 52 54 Q 60 58 68 54 Q 74 48 70 38 Q 64 34 60 34 Q 56 34 50 38 Z"
+                      fill="#181008" stroke="#0a0604" strokeWidth="0.5" />
+                <path d="M 52 46 L 68 46" stroke="rgba(var(--accent-rgb),.65)" strokeWidth="1.2" />
+                <path d="M 53 50 L 67 50" stroke="rgba(0,0,0,.4)" strokeWidth="0.6" />
               </g>
-              {/* Body silhouette */}
-              <g fill="#0a0a0a">
-                {/* Legs — wider batting stance */}
-                <rect x="40" y="160" width="14" height="40" rx="4" />
-                <rect x="66" y="160" width="14" height="40" rx="4" />
+
+              {/* BODY — stationary during swing. Silhouette all black. */}
+              <g fill="#1b1f2d">
+                {/* BACK leg (right leg of RHB, at low x) — coiled */}
+                <path d="M 30 128 Q 22 138 24 168 L 28 208 L 48 208 L 46 168 Q 44 142 48 126 Z" />
+                {/* FRONT leg (left leg of RHB, at high x) — planted */}
+                <path d="M 72 130 Q 84 138 86 170 L 88 208 L 74 208 L 72 170 Q 70 144 74 128 Z" />
                 {/* Cleats */}
-                <rect x="34" y="196" width="24" height="6" rx="2" />
-                <rect x="62" y="196" width="24" height="6" rx="2" />
-                {/* Torso — tapered V with hips */}
-                <path d="M 30 62 L 90 62 L 86 110 L 82 155 L 70 160 L 50 160 L 38 155 L 34 110 Z" />
-                {/* Shoulders + belt accent */}
-                <rect x="28" y="58" width="64" height="10" rx="5" />
-                <rect x="46" y="118" width="28" height="3" fill="rgba(255,255,255,.08)" />
-                {/* Helmet / head */}
-                <circle cx="60" cy="42" r="20" />
-                {/* Face shadow strip */}
-                <rect x="42" y="44" width="36" height="8" rx="2" fill="rgba(255,255,255,.04)" />
-                {/* Clay helmet stripe */}
-                <rect x="40" y="26" width="40" height="6" rx="2" fill="var(--accent)" />
-                {/* Ear flap */}
-                <path d="M 40 42 Q 36 50 40 58 L 46 58 L 46 42 Z" />
+                <path d="M 20 204 L 50 204 L 48 214 L 22 214 Z" />
+                <path d="M 70 204 L 92 204 L 90 214 L 72 214 Z" />
+                {/* Hips */}
+                <path d="M 36 118 L 84 118 L 80 138 L 40 138 Z" />
+                {/* Torso — wide shoulders tapering to waist */}
+                <path d="M 28 62 Q 60 55 92 62 L 88 100 L 82 118 L 38 118 L 32 100 Z" />
+                {/* Back (right) shoulder — raised, rounded */}
+                <ellipse cx="35" cy="64" rx="10" ry="8" />
+                {/* Front (left) shoulder */}
+                <ellipse cx="85" cy="64" rx="10" ry="8" />
+                {/* Upper arms reaching from shoulders toward bat pivot (60,44) */}
+                {/* Back arm (RHB's right, drawn top-and-back from right shoulder) */}
+                <path d="M 30 56 Q 36 44 52 40 L 58 48 Q 46 54 38 62 Z" />
+                {/* Front (lead) arm — comes across body to grip */}
+                <path d="M 86 58 Q 78 48 66 42 L 62 50 Q 74 56 82 64 Z" />
+                {/* Neck */}
+                <rect x="54" y="46" width="12" height="10" />
+                {/* Head / helmet — rounded dome with slight egg shape */}
+                <path d="M 60 8 Q 42 8 38 24 Q 36 38 42 48 Q 50 54 60 52 Q 70 54 78 48 Q 84 38 82 24 Q 78 8 60 8 Z" />
+                {/* Ear flap (on pitcher side = front = right in SVG) */}
+                <path d="M 80 30 Q 84 40 82 48 L 74 48 L 74 30 Z" />
+                {/* Jaw shadow */}
+                <path d="M 58 52 Q 54 56 52 52" fill="rgba(255,255,255,.04)" />
               </g>
+
+              {/* Helmet dome highlight — subtle sheen */}
+              <ellipse cx="52" cy="22" rx="20" ry="16" fill="url(#helmetDome)" />
+              {/* Clay accent stripe across helmet crown */}
+              <path d="M 44 16 Q 60 10 76 16 L 76 22 Q 60 14 44 22 Z" fill="var(--accent)" />
+
+              {/* Belt line */}
+              <rect x="40" y="118" width="40" height="1.5" fill="rgba(255,255,255,.12)" />
             </svg>
           </div>
 
@@ -377,7 +484,6 @@ export function Arc() {
             />
 
             <g ref={trailRef} />
-            <g ref={damageRef} />
 
             <g ref={ballRef} filter="url(#ballBlur)">
               {/* Soft halo behind the ball so it reads against the dark arc */}

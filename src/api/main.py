@@ -7,8 +7,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.errors import register_error_handlers
+from src.api.routers import admin as admin_router
 from src.api.routers import health as health_router
 from src.api.routers import matchup as matchup_router
 from src.api.routers import model as model_router
@@ -65,12 +67,25 @@ def create_app() -> FastAPI:
         ),
         lifespan=lifespan,
     )
+    # CORS: allow the Next.js dev server + any localhost port to hit the
+    # API directly from the browser (refresh-picks button, etc). The
+    # frontend's server-side fetches don't need this — it only matters
+    # for client-side calls. Restrict to localhost so we don't accept
+    # cross-origin calls from the public internet.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     register_error_handlers(app)
     app.include_router(health_router.router)
     app.include_router(picks_router.router)
     app.include_router(player_router.router)
     app.include_router(matchup_router.router)
     app.include_router(model_router.router)
+    app.include_router(admin_router.router)
     return app
 
 

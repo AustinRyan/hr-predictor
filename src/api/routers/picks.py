@@ -31,9 +31,14 @@ _PICKS_TODAY_SQL = text("""
         p.model_version,
         ds.game_start_utc,
         bp.full_name AS batter_name,
+        bp.bats AS batter_bats,
+        bp.primary_position AS batter_position,
         pp.full_name AS pitcher_name,
         pp.throws AS pitcher_throws,
         pk.name AS park_name,
+        mf.b_barrel_pct_season,
+        mf.b_p90_ev_season,
+        mf.park_hr_factor_hand,
         tm_home.abbr AS home_abbr,
         tm_away.abbr AS away_abbr,
         ds.home_team_id,
@@ -47,6 +52,11 @@ _PICKS_TODAY_SQL = text("""
     LEFT JOIN players pp ON pp.mlbam_id = p.pitcher_id
     LEFT JOIN teams tm_home ON tm_home.team_id = ds.home_team_id
     LEFT JOIN teams tm_away ON tm_away.team_id = ds.away_team_id
+    LEFT JOIN matchup_features mf
+      ON mf.game_pk = p.game_pk
+     AND mf.batter_id = p.batter_id
+     AND mf.pitcher_id = p.pitcher_id
+     AND mf.game_date = p.game_date
     WHERE p.game_date = :target_date
       AND p.prob_at_least_one_hr >= :min_prob
       AND (CAST(:team AS text) IS NULL
@@ -72,19 +82,30 @@ def _row_to_pick(row) -> PickSummary:
     # in v1. Phase 7+ can wire it in if UI needs it.
     team_abbr = None
 
+    def _f(key: str) -> float | None:
+        v = row.get(key) if hasattr(row, "get") else row[key]
+        return float(v) if v is not None else None
+
     return PickSummary(
         batter_id=int(row["batter_id"]),
         batter_name=row["batter_name"],
+        batter_bats=row["batter_bats"],
+        batter_position=row["batter_position"],
         team_abbr=team_abbr,
         game_pk=int(row["game_pk"]),
         game_date=row["game_date"],
         game_start_utc=row["game_start_utc"],
         park_name=row["park_name"],
+        home_team_abbr=row["home_abbr"],
+        away_team_abbr=row["away_abbr"],
         pitcher_id=int(row["pitcher_id"]),
         pitcher_name=row["pitcher_name"],
         pitcher_throws=row["pitcher_throws"],
         prob_at_least_one_hr=float(row["prob_at_least_one_hr"]),
         expected_hrs=(float(row["expected_hrs"]) if row["expected_hrs"] is not None else None),
+        barrel_pct_season=_f("b_barrel_pct_season"),
+        p90_ev_season=_f("b_p90_ev_season"),
+        park_hr_factor_hand=_f("park_hr_factor_hand"),
         top_contributing_features=contributions,
         model_version=row["model_version"],
     )
@@ -122,6 +143,9 @@ def _picks_today_cached(
     return [_row_to_pick(r) for r in rows]
 
 
+_LATEST_DATE_SQL = text("SELECT MAX(game_date) FROM predictions")
+
+
 @router.get("/today", response_model=list[PickSummary])
 async def picks_today(
     request: Request,
@@ -137,10 +161,35 @@ async def picks_today(
     - `min_prob`: filter below this P(>=1 HR); 0 for no filter
     - `team`: restrict to a team abbreviation (home OR away)
     - `sort`: rank by `prob` (default) or `expected_hrs`
+
+    If today has no predictions yet (daily inference not yet run, or the
+    pipeline is a day behind a calendar rollover), the endpoint falls
+    back to the most recent date that does. Clients get real picks
+    instead of an empty slate; the `game_date` field on each pick makes
+    the staleness visible.
     """
     target_date = datetime.now(UTC).date()
-    return await _picks_today_cached(
+    picks = await _picks_today_cached(
         target_date=target_date,
+        limit=limit,
+        min_prob=min_prob,
+        team=team,
+        sort=sort,
+        request=request,
+        db=db,
+    )
+    if picks:
+        return picks
+
+    latest = db.execute(_LATEST_DATE_SQL).scalar()
+    if latest is None or latest == target_date:
+        return picks  # truly empty — no predictions anywhere
+    _log.info(
+        "picks_today falling back to most recent date",
+        extra={"today": target_date.isoformat(), "served": latest.isoformat()},
+    )
+    return await _picks_today_cached(
+        target_date=latest,
         limit=limit,
         min_prob=min_prob,
         team=team,

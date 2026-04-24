@@ -24,6 +24,9 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
   const [limit, setLimit] = useState<number>(20);
   const [parlay, setParlay] = useState<number[]>([]);
   const [locked, setLocked] = useState<boolean>(false);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [refreshPhase, setRefreshPhase] = useState<string>("");
+  const [onePerGame, setOnePerGame] = useState<boolean>(false);
 
   const filtered: Pick[] = useMemo(() => {
     const rows = source.filter((p) => p.prob >= minProb && (team === "" || p.team === team));
@@ -32,8 +35,23 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
       if (sort === "ehr") return b.ehr - a.ehr;
       return parseEdge(b.edge) - parseEdge(a.edge);
     });
+    // "One per game": park + wind are shared across every batter in a
+    // game, so top-N often clusters in the best 1-2 parks. When enabled,
+    // keep only the highest-prob pick for each game_pk so the list
+    // diversifies across the slate (prop-bet friendlier).
+    if (onePerGame) {
+      const seen = new Set<number>();
+      const diversified: Pick[] = [];
+      for (const p of sorted) {
+        const key = p.gamePk ?? -1;
+        if (key === -1 || seen.has(key)) continue;
+        seen.add(key);
+        diversified.push(p);
+      }
+      return diversified.slice(0, limit);
+    }
     return sorted.slice(0, limit);
-  }, [source, sort, minProb, team, limit]);
+  }, [source, sort, minProb, team, limit, onePerGame]);
 
   const parlayLegs = source.filter((p) => parlay.includes(p.id));
   const combinedP = parlayLegs.reduce((acc, p) => acc * (p.prob / 100), 1);
@@ -47,6 +65,53 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
 
   function toggleLeg(id: number): void {
     setParlay((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  async function runRefresh(): Promise<void> {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshPhase("STARTING");
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8765";
+    try {
+      const start = await fetch(`${base}/admin/refresh-picks`, { method: "POST" });
+      if (!start.ok) {
+        const msg = start.status === 409 ? "REFRESH ALREADY RUNNING" : `HTTP ${start.status}`;
+        throw new Error(msg);
+      }
+      // Poll status every 1.2s until done/error
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1200));
+        const sr = await fetch(`${base}/admin/refresh-status`, { cache: "no-store" });
+        if (!sr.ok) throw new Error(`status ${sr.status}`);
+        const s = (await sr.json()) as {
+          status: string;
+          phase: string | null;
+          error: string | null;
+          rows_written: number | null;
+        };
+        setRefreshPhase((s.phase ?? s.status).toUpperCase());
+        if (s.status === "done") {
+          setRefreshPhase(`DONE · ${s.rows_written ?? 0} ROWS`);
+          break;
+        }
+        if (s.status === "error") {
+          throw new Error(s.error ?? "unknown error");
+        }
+      }
+      // Give user a moment to see the DONE state before reload
+      await new Promise((r) => setTimeout(r, 700));
+      window.location.reload();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("refresh failed", err);
+      setRefreshPhase("ERROR");
+      // Surface the real reason to the user (e.g. "lineups not yet
+      // published"). Browser alert is crude but guaranteed visible.
+      window.alert(`Refresh failed: ${msg}`);
+      await new Promise((r) => setTimeout(r, 1200));
+      setRefreshing(false);
+      setRefreshPhase("");
+    }
   }
 
   return (
@@ -135,11 +200,42 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
             </div>
           </div>
 
+          <div className="f-group">
+            <label className="f-label">DIVERSIFY</label>
+            <div className="seg">
+              <button
+                type="button"
+                className={`seg-btn ${!onePerGame ? "active" : ""}`}
+                onClick={() => setOnePerGame(false)}
+                title="Raw ranking — can cluster in hitter-friendly games"
+              >
+                ALL
+              </button>
+              <button
+                type="button"
+                className={`seg-btn ${onePerGame ? "active" : ""}`}
+                onClick={() => setOnePerGame(true)}
+                title="One best pick per game — spread across the slate"
+              >
+                1 / GAME
+              </button>
+            </div>
+          </div>
+
           <div className="f-spacer" />
           <div className="f-group">
-            <button type="button" className="btn btn-ghost-sm">
-              <span>↻</span> REFRESH · LIVE
-            </button>
+            {process.env.NEXT_PUBLIC_ALLOW_REFRESH === "true" && (
+              <button
+                type="button"
+                className="btn btn-ghost-sm"
+                onClick={() => void runRefresh()}
+                disabled={refreshing}
+                title="Re-run the daily ingest + inference pipeline on the local backend"
+              >
+                <span style={{ display: "inline-block", animation: refreshing ? "spin 1.2s linear infinite" : undefined }}>↻</span>{" "}
+                {refreshing ? refreshPhase || "REFRESHING" : "REFRESH PICKS"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -169,24 +265,25 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                   const rank = i + 1;
                   const edgeNeg = p.neg || p.edge.startsWith("-");
                   const added = parlay.includes(p.id);
+                  const matchupHref = p.gamePk
+                    ? `/matchup/${p.gamePk}/${p.id}`
+                    : `/player/${p.id}`;
                   return (
-                    <div
+                    <Link
                       key={p.id}
+                      href={matchupHref}
                       className={`rk-row ${rank <= 3 ? "top3" : ""}`}
-                      role="button"
-                      tabIndex={0}
+                      aria-label={`View full breakdown for ${p.first} ${p.last}`}
                     >
                       <div className="rk-rank">{rank}</div>
                       <div className="rk-player">
                         <div className="rk-avatar">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={headshotUrl(p.id)} alt="" />
-                          <span className="rk-avatar-num">{p.num}</span>
+                          {p.num > 0 && <span className="rk-avatar-num">{p.num}</span>}
                         </div>
                         <div>
-                          <Link href={`/player/${p.id}`} className="rk-pl-name" style={{ display: "block" }}>
-                            {p.first} {p.last}
-                          </Link>
+                          <div className="rk-pl-name">{p.first} {p.last}</div>
                           <div className="rk-pl-meta">
                             <span className="rk-team">{p.team}</span>
                             <span>{p.pos}</span>
@@ -222,13 +319,14 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                         className={`rk-add ${added ? "added" : ""}`}
                         aria-label={added ? "Remove from parlay" : "Add to parlay"}
                         onClick={(e) => {
+                          e.preventDefault();
                           e.stopPropagation();
                           toggleLeg(p.id);
                         }}
                       >
                         {added ? "✓" : "+"}
                       </button>
-                    </div>
+                    </Link>
                   );
                 })
               )}

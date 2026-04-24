@@ -1,6 +1,9 @@
-import { SCOREBOARD } from "@/lib/mock-data";
+import { SCOREBOARD, type ScoreboardGame } from "@/lib/mock-data";
 
-export function Scoreboard() {
+type Props = { games?: readonly ScoreboardGame[] };
+
+export function Scoreboard({ games }: Props = {}) {
+  const list: readonly ScoreboardGame[] = games && games.length > 0 ? games : SCOREBOARD;
   return (
     <section className="scoreboard" id="scoreboard">
       <div className="section-head">
@@ -10,17 +13,17 @@ export function Scoreboard() {
           BEFORE THE <span className="accent">BOOKS</span>.
         </h2>
         <p className="section-kicker">
-          While sportsbooks price on public narrative, we price on 1,400 features per
-          plate appearance. The scoreboard below refreshes every 90 seconds off
-          Statcast, weather, and bullpen state.
+          While sportsbooks price on public narrative, we price on 118 features per
+          matchup. The scoreboard below reads live off the production ensemble
+          model.
         </p>
       </div>
 
       <div className="scoreboard-leds">
-        {SCOREBOARD.map((g, i) => {
+        {list.map((g, i) => {
           const [name, pct] = g.topProb.split(" · ");
           return (
-            <article className="led" key={i}>
+            <article className="led" key={`${g.home}-${g.away}-${i}`}>
               <div className="led-top">
                 <span>GAME {String(i + 1).padStart(2, "0")}</span>
                 <span>{g.time} ET</span>
@@ -51,20 +54,20 @@ export function Scoreboard() {
 
       <div className="scoreboard-stats">
         <div className="stat">
-          <div className="stat-num">1,412</div>
-          <div className="stat-label">Features per at-bat</div>
+          <div className="stat-num">118</div>
+          <div className="stat-label">Features per matchup</div>
         </div>
         <div className="stat">
-          <div className="stat-num">7.3</div>
-          <div className="stat-label">Seconds from pitch to model</div>
+          <div className="stat-num">{list.length}</div>
+          <div className="stat-label">Games on tonight&apos;s slate</div>
         </div>
         <div className="stat">
-          <div className="stat-num">0.0043</div>
-          <div className="stat-label">Brier score, rolling 30d</div>
+          <div className="stat-num">0.0434</div>
+          <div className="stat-label">Brier · test set</div>
         </div>
         <div className="stat">
-          <div className="stat-num">162</div>
-          <div className="stat-label">Games tracked · nightly</div>
+          <div className="stat-num">0.0064</div>
+          <div className="stat-label">Calibration (ECE)</div>
         </div>
       </div>
     </section>

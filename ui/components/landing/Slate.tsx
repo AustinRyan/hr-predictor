@@ -1,12 +1,16 @@
-import { SLATE_CARDS } from "@/lib/mock-data";
+import { SLATE_CARDS, type SlateCard } from "@/lib/mock-data";
 
-export function Slate() {
+type Props = { games?: readonly SlateCard[] };
+
+export function Slate({ games }: Props = {}) {
+  const cards: readonly SlateCard[] = games && games.length > 0 ? games : SLATE_CARDS;
+  const titleNum = cards.length;
   return (
     <section className="slate" id="slate" aria-label="Today's slate">
       <div className="slate-head">
         <span className="section-num">/ A</span>
         <h2 className="slate-title">
-          15 PARKS. ONE <span className="accent">NIGHT</span>.
+          {titleNum} PARKS. ONE <span className="accent">NIGHT</span>.
         </h2>
         <p className="slate-kicker">
           Every game tonight, every micro-condition. Scroll sideways.
@@ -14,7 +18,7 @@ export function Slate() {
       </div>
       <div className="slate-scroller">
         <div className="slate-track">
-          {SLATE_CARDS.map((card, i) => (
+          {cards.map((card, i) => (
             <article className="slate-card" key={`${card.away}-${card.home}-${i}`}>
               <div className="sc-time">{card.time}</div>
               <div className="sc-match">

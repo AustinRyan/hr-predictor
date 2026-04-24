@@ -12,12 +12,13 @@ develop-eggs/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
 parts/
 sdist/
 var/
 wheels/
+# NOTE: generic `lib/` + `lib64/` used to be here (leftover from Python
+# venv defaults); they also matched `ui/lib/` which is our Next.js data
+# layer. Dropped — our venv is .venv/ so the Python match is redundant.
 share/python-wheels/
 MANIFEST
 pip-log.txt
@@ -78,6 +79,11 @@ http_cache.sqlite*
 # OS
 .DS_Store
 Thumbs.db
+
+# Playwright debug artifacts (repo-root screenshots from Arc debugging)
+.playwright-mcp/
+arc-*.png
+/*.png
 
 # Node (future UI)
 node_modules/

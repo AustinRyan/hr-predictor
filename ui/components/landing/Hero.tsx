@@ -1,4 +1,5 @@
 import { PICKS, TICKER, headshotUrl, type Pick } from "@/lib/mock-data";
+import type { HeroStats } from "@/lib/adapters";
 
 function formatDate(): string {
   return new Date()
@@ -6,15 +7,37 @@ function formatDate(): string {
     .toUpperCase();
 }
 
+function fmtPct(v: number | null | undefined, decimals = 1): string {
+  return v === null || v === undefined ? "—" : `${(v * 100).toFixed(decimals)}`;
+}
+function fmtNum(v: number | null | undefined, decimals = 1): string {
+  return v === null || v === undefined ? "—" : v.toFixed(decimals);
+}
+function fmtPark(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  const delta = v - 100;
+  const sign = delta >= 0 ? "+" : "";
+  return `${sign}${delta.toFixed(0)}`;
+}
+
 type Props = {
   picks?: readonly Pick[];
+  topStats?: HeroStats;
+  ticker?: readonly string[];
+  gameCount?: number;
+  modelVersion?: string;
+  brier?: number | null;
 };
 
-export function Hero({ picks }: Props = {}) {
+export function Hero({ picks, topStats, ticker, gameCount, modelVersion, brier }: Props = {}) {
   const source = picks ?? PICKS;
   const topPick = source[0] ?? PICKS[0];
+  const tickerItems = ticker && ticker.length > 0 ? ticker : TICKER;
   // Double the ticker so the CSS keyframe (-50%) loops seamlessly.
-  const tickerLoop = [...TICKER, ...TICKER];
+  const tickerLoop = [...tickerItems, ...tickerItems];
+  const modelLabel = modelVersion ? modelVersion.toUpperCase() : "MODEL v4.2.1";
+  const brierLabel = brier != null ? `CALIBRATED TO ${brier.toFixed(4)} BRIER` : "CALIBRATED TO .0043 BRIER";
+  const slateLabel = gameCount != null ? `${gameCount} GAMES` : "15 SLATE";
 
   return (
     <section className="hero" id="top">
@@ -23,11 +46,11 @@ export function Hero({ picks }: Props = {}) {
       <div className="hero-strip">
         <span>GAME DAY · {formatDate()}</span>
         <span className="strip-dot">●</span>
-        <span>MODEL v4.2.1</span>
+        <span>{modelLabel}</span>
         <span className="strip-dot">●</span>
-        <span>15 SLATE</span>
+        <span>{slateLabel}</span>
         <span className="strip-dot">●</span>
-        <span>CALIBRATED TO .0043 BRIER</span>
+        <span>{brierLabel}</span>
       </div>
 
       <div className="hero-stage">
@@ -67,7 +90,7 @@ export function Hero({ picks }: Props = {}) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={headshotUrl(topPick.id)} alt="" />
             </div>
-            <div className="portrait-number">{topPick.num}</div>
+            {topPick.num > 0 && <div className="portrait-number">{topPick.num}</div>}
             <div className="portrait-noise" />
           </div>
 
@@ -81,7 +104,7 @@ export function Hero({ picks }: Props = {}) {
               <span>·</span>
               <span>{topPick.pos}</span>
               <span>·</span>
-              <span>{topPick.hand} / R</span>
+              <span>BATS {topPick.hand}</span>
             </div>
           </div>
 
@@ -121,15 +144,15 @@ export function Hero({ picks }: Props = {}) {
             </div>
             <div className="ps">
               <div className="ps-k">BARREL%</div>
-              <div className="ps-v">22.4</div>
+              <div className="ps-v">{fmtPct(topStats?.barrelPct)}</div>
             </div>
             <div className="ps">
               <div className="ps-k">EV<sub>90</sub></div>
-              <div className="ps-v">108.3</div>
+              <div className="ps-v">{fmtNum(topStats?.p90Ev)}</div>
             </div>
             <div className="ps">
               <div className="ps-k">PARK</div>
-              <div className="ps-v">+6%</div>
+              <div className="ps-v">{fmtPark(topStats?.parkFactor)}</div>
             </div>
           </div>
         </aside>

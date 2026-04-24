@@ -111,7 +111,18 @@ export default async function MatchupPage({ params }: PageProps) {
           </section>
         )}
 
-        <h2 className="section-num" style={{ marginBottom: 12 }}>/ BATTER</h2>
+        <h2 className="section-num" style={{ marginBottom: 4 }}>/ BATTER</h2>
+        <div style={{
+          fontFamily: "var(--f-mono)", fontSize: 10, letterSpacing: ".14em",
+          color: "var(--ink-mute)", textTransform: "uppercase", marginBottom: 18,
+          maxWidth: 720,
+        }}>
+          Season stats are the exact values the model used as input for this
+          prediction — cumulative through the day before {game.game_date}.
+          Formulas match Baseball Savant (barrel% = barrels / BBE, p90 EV =
+          90th-pctl exit velo of batted balls). Savant shows live data; our
+          values are frozen at inference time.
+        </div>
         <div className="detail-grid" style={{ marginBottom: 48 }}>
           <div className="detail-card">
             <div className="detail-card-k">BARREL % · SEASON</div>

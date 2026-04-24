@@ -1,0 +1,148 @@
+/**
+ * /picks/today equivalent — returns ranked HR picks for today (or the
+ * most recent date with predictions, since inference runs locally on
+ * the user's laptop and may lag by a day).
+ *
+ * SQL is a near-verbatim port of src/api/routers/picks.py. Any change
+ * to PickSummary contract or join shape should be mirrored there.
+ */
+
+import { sql } from "@/lib/db";
+import type { FeatureContribution, PickSummary } from "@/lib/types";
+
+type Row = {
+  game_pk: number;
+  game_date: Date;
+  batter_id: number;
+  pitcher_id: number;
+  prob_at_least_one_hr: string; // numeric comes back as string
+  expected_hrs: string | null;
+  feature_contributions: Record<string, number> | null;
+  model_version: string;
+  game_start_utc: Date | null;
+  batter_name: string | null;
+  batter_bats: string | null;
+  batter_position: string | null;
+  pitcher_name: string | null;
+  pitcher_throws: string | null;
+  park_name: string | null;
+  b_barrel_pct_season: string | null;
+  b_p90_ev_season: string | null;
+  park_hr_factor_hand: string | null;
+  home_abbr: string | null;
+  away_abbr: string | null;
+};
+
+function topContribs(raw: Record<string, number> | null): FeatureContribution[] {
+  if (!raw) return [];
+  return Object.entries(raw)
+    .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
+    .slice(0, 3)
+    .map(([name, contribution]) => ({ name, contribution: Number(contribution) }));
+}
+
+function toPick(row: Row): PickSummary {
+  const n = (s: string | null): number | null => (s === null ? null : Number(s));
+  return {
+    batter_id: Number(row.batter_id),
+    batter_name: row.batter_name,
+    batter_bats: row.batter_bats,
+    batter_position: row.batter_position,
+    team_abbr: null, // not inferred in v1
+    game_pk: Number(row.game_pk),
+    game_date:
+      row.game_date instanceof Date
+        ? row.game_date.toISOString().slice(0, 10)
+        : String(row.game_date),
+    game_start_utc: row.game_start_utc
+      ? new Date(row.game_start_utc).toISOString()
+      : null,
+    park_name: row.park_name,
+    home_team_abbr: row.home_abbr,
+    away_team_abbr: row.away_abbr,
+    pitcher_id: Number(row.pitcher_id),
+    pitcher_name: row.pitcher_name,
+    pitcher_throws: row.pitcher_throws,
+    prob_at_least_one_hr: Number(row.prob_at_least_one_hr),
+    expected_hrs: n(row.expected_hrs),
+    barrel_pct_season: n(row.b_barrel_pct_season),
+    p90_ev_season: n(row.b_p90_ev_season),
+    park_hr_factor_hand: n(row.park_hr_factor_hand),
+    top_contributing_features: topContribs(row.feature_contributions),
+    model_version: row.model_version,
+  };
+}
+
+export type PicksQuery = {
+  limit?: number;
+  minProb?: number;
+  team?: string;
+  sort?: "prob" | "expected_hrs";
+};
+
+async function queryForDate(targetDate: string, q: PicksQuery): Promise<PickSummary[]> {
+  const limit = q.limit ?? 20;
+  const minProb = q.minProb ?? 0;
+  const team = q.team ?? null;
+  const sortByEhr = q.sort === "expected_hrs";
+  const rows = (await sql`
+    SELECT
+      p.game_pk,
+      p.game_date,
+      p.batter_id,
+      p.pitcher_id,
+      p.prob_at_least_one_hr,
+      p.expected_hrs,
+      p.feature_contributions,
+      p.model_version,
+      ds.game_start_utc,
+      bp.full_name AS batter_name,
+      bp.bats AS batter_bats,
+      bp.primary_position AS batter_position,
+      pp.full_name AS pitcher_name,
+      pp.throws AS pitcher_throws,
+      pk.name AS park_name,
+      mf.b_barrel_pct_season,
+      mf.b_p90_ev_season,
+      mf.park_hr_factor_hand,
+      tm_home.abbr AS home_abbr,
+      tm_away.abbr AS away_abbr
+    FROM predictions p
+    LEFT JOIN daily_schedule ds ON ds.game_pk = p.game_pk
+    LEFT JOIN parks pk ON pk.park_id = ds.venue_id
+    LEFT JOIN players bp ON bp.mlbam_id = p.batter_id
+    LEFT JOIN players pp ON pp.mlbam_id = p.pitcher_id
+    LEFT JOIN teams tm_home ON tm_home.team_id = ds.home_team_id
+    LEFT JOIN teams tm_away ON tm_away.team_id = ds.away_team_id
+    LEFT JOIN matchup_features mf
+      ON mf.game_pk = p.game_pk
+     AND mf.batter_id = p.batter_id
+     AND mf.pitcher_id = p.pitcher_id
+     AND mf.game_date = p.game_date
+    WHERE p.game_date = ${targetDate}
+      AND p.prob_at_least_one_hr >= ${minProb}
+      AND (${team}::text IS NULL OR tm_home.abbr = ${team} OR tm_away.abbr = ${team})
+    ORDER BY
+      CASE WHEN ${sortByEhr} THEN p.expected_hrs
+           ELSE p.prob_at_least_one_hr END DESC NULLS LAST,
+      p.prob_at_least_one_hr DESC NULLS LAST
+    LIMIT ${limit}
+  `) as unknown as Row[];
+  return rows.map(toPick);
+}
+
+export async function picksToday(q: PicksQuery = {}): Promise<PickSummary[]> {
+  // Current UTC date. Matches FastAPI behavior (datetime.now(UTC).date()).
+  const today = new Date().toISOString().slice(0, 10);
+  const picks = await queryForDate(today, q);
+  if (picks.length > 0) return picks;
+
+  // Fallback: pick the most recent date that has predictions. Inference
+  // runs locally on the user's machine and may lag by a day, especially
+  // across the UTC date boundary.
+  const [latest] = (await sql`
+    SELECT MAX(game_date)::text AS d FROM predictions
+  `) as unknown as { d: string | null }[];
+  if (!latest?.d || latest.d === today) return picks;
+  return queryForDate(latest.d, q);
+}
