@@ -15,8 +15,11 @@ import { isConfigured, sql } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const raw = process.env.DATABASE_URL ?? "";
   const env = {
     DATABASE_URL_set: isConfigured(),
+    DATABASE_URL_length: raw.length,
+    DATABASE_URL_has_whitespace: /\s/.test(raw),
     NEXT_PUBLIC_ALLOW_REFRESH: process.env.NEXT_PUBLIC_ALLOW_REFRESH ?? null,
     node_env: process.env.NODE_ENV ?? null,
     vercel_env: process.env.VERCEL_ENV ?? null,

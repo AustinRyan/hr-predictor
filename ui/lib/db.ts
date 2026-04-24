@@ -24,15 +24,22 @@ declare global {
 }
 
 function makeClient(): Sql {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
+  const raw = process.env.DATABASE_URL;
+  if (!raw) {
     throw new Error(
       "DATABASE_URL is not set. On Vercel, add it under " +
         "Project Settings → Environment Variables. Locally, put it " +
         "in ui/.env.local.",
     );
   }
-  return neon(url);
+  // Strip embedded whitespace. Vercel's env UI can fold long strings
+  // onto multiple lines on paste; the Neon HTTP driver rejects URLs
+  // with any non-printable chars because they'd break the HTTP header.
+  const url = raw.replace(/\s+/g, "");
+  // The Python backend uses the `postgresql+psycopg://` dialect prefix;
+  // Neon's driver wants the bare `postgresql://` scheme.
+  const normalized = url.replace(/^postgresql\+psycopg:\/\//, "postgresql://");
+  return neon(normalized);
 }
 
 export const sql: Sql =
