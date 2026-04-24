@@ -1,9 +1,9 @@
 # HR Predictor — Abstract
 
-**Updated:** 2026-04-23 — end of Phase 6
+**Updated:** 2026-04-23 — end of Phase 7
 
 ## Current phase
-**Phase 7 — Next.js frontend** — not started.
+**Phase 8 — LangGraph explanation agent (optional)** — not started.
 
 ## Project elevator pitch
 Per-game MLB home-run probability predictor for prop-betting decision support. Local-first Python/Next.js stack. Trained on Statcast 2021–present. Calibration-first evaluation (Brier, ECE, reliability curves). Phased development; context clears between phases.
@@ -15,8 +15,8 @@ Per-game MLB home-run probability predictor for prop-betting decision support. L
 - [x] Phase 3 — Feature engineering (tag: `phase-3-complete`)
 - [x] Phase 4 — Baseline model + evaluation framework (tag: `phase-4-complete`)
 - [x] Phase 5 — Calibration + per-game rollup (tag: `phase-5-complete` + `phase-5.5-complete`)
-- [x] Phase 6 — FastAPI backend (tag: pending controller review)
-- [ ] Phase 7 — Next.js frontend
+- [x] Phase 6 — FastAPI backend (tag: `phase-6-complete`)
+- [x] Phase 7 — Next.js frontend (tag: pending controller review)
 - [ ] Phase 8 — LangGraph explanation agent (optional)
 
 ## Key decisions locked
@@ -117,8 +117,20 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **Ensemble inference wired through `src/models/inference.py`:** detects `training_metadata["ensemble"]`, loads sidecar `lightgbm.txt`, averages 50/50 of raw XGB + LightGBM probs before isotonic calibration. Single-model path unchanged. See `src/models/lightgbm_trainer.py` for the trainer symmetry.
 - **Today's refreshed picks under ensemble:** 135 predictions (max 0.1158 James Wood, mean 0.0447). Top SHAP drivers are now legitimate batted-ball/pitch-quality features (`b_p90_ev_30d`, `p_ff_velo_avg`, `park_hr_factor_hand`, `b_xiso_season`) with no days_rest contamination. Sánchez-vs-Skubal still appears at rank ~4 (p=0.0927) but driven by `p_ff_velo_avg` (Skubal's velo) + `ctx_same_hand`, not a bogus rest-day shortcut.
 
+### Phase 7 decisions
+- **PROMPT.md rewritten mid-phase.** The user handed off a finished Claude Design bundle (stadium brutalist landing + scroll-linked ball arc + duotone headshots + parlay ticket) that was substantially different in voice and scope from the original restrained shadcn/ui dashboard spec. The new PROMPT.md is the design-driven 5-stage delivery plan; the shadcn version is abandoned. Design bundle archived at `phases/phase7/design-source/`.
+- **Scaffold:** Next.js 16.2 (App Router) / React 19 / TypeScript strict / Tailwind v4, under `ui/`. Custom design tokens stay as CSS custom properties in `globals.css` (not hoisted into Tailwind's `@theme`) so the runtime `data-accent` / `data-intensity` retheme switcher works.
+- **Fonts:** Barlow Condensed (display, weights 400-900), Archivo (body), JetBrains Mono (data/labels), Bebas Neue fallback — all via `next/font/google`.
+- **Scroll-linked arc** (`components/landing/Arc.tsx`) runs a rAF loop that mutates SVG attributes via refs rather than React state. 400vh stage with sticky pin, physics-warped scroll→time mapping (ball dwells at apex, accelerates on descent), 10-slot ghost trail, altitude-scaled ground shadow, damage numbers that eject from ball position at each threshold, finale with stadium lights + crowd rise + count-up P(HR). `prefers-reduced-motion` collapses the arc to a static panel.
+- **Parlay ticket share-as-image** (`components/rankings/Ticket.tsx`) hand-rolls canvas drawing at device-pixel resolution. html2canvas was considered and rejected (fights CSS custom props + radial gradients). Web Share API used when available; `<a download>` fallback otherwise.
+- **Real API wiring with mock fallback.** `ui/lib/api.ts` returns `T | null` on any failure; `page.tsx` falls back to the mock PICKS if `/picks/today` is empty or unreachable. Adapter `lib/adapters.ts` converts API `PickSummary` shape to the design's `Pick` shape; fields the API doesn't own (jersey, handedness, edge) are synthesized as placeholders until wiring book odds in Phase 7.1+.
+- **5 routes:** `/` (ISR 5m), `/model` (ISR 5m), `/player/[id]` (dynamic), `/matchup/[gamePk]/[batterId]` (dynamic), styled `/not-found`. Detail pages have no mock fallback — `notFound()` fires cleanly on missing data.
+- **Reliability chart is hand-rolled SVG.** The PROMPT mentioned recharts; it was removed mid-build because recharts' default visual language fights the stadium-brutalist aesthetic and the data shapes are simple enough that an ~80-line SVG component is cleaner. Future charts follow the same pattern.
+- **Next.js 16.2.4 (not 15).** `create-next-app` pulled the newer stable. All features used work identically to the 15 spec.
+- **HR easter egg:** type `H` then `R` anywhere → ball arcs across viewport with giant "HOME RUN" text flash. Ignored in reduced-motion and inside text inputs.
+
 ## Open questions / decisions pending
-- None blocking Phase 7.
+- None blocking Phase 8. Phase 7 follow-ups (non-blocking): wire book odds into `edge`, add jersey/hand fields to the API response, write a vitest suite for RankingsApp filter math.
 
 ## Open bugs / technical debt
 - **`launch_speed` null-rate threshold in Phase 1 PROMPT is misframed.** (Carried from Phase 2.) Phase 3 feature-engineering now handles this correctly via ball-in-play-conditional FILTERs.
@@ -131,4 +143,4 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **`sanity_runner.py` relies on row-order alignment** between `time_based_split`'s `X` and a re-query of `matchup_features` with the same filters. Stable in practice but not formally guaranteed. A future small refactor can plumb `(game_pk, batter_id, pitcher_id)` through `FeatureFrame.metadata` to make alignment explicit.
 
 ## Next action
-Controller applies `phase-6-complete` tag after review. Phase 7 (`phases/phase7/PROMPT.md`) covers the Next.js frontend.
+Controller applies `phase-7-complete` tag after review. Phase 8 (`phases/phase8/` — if still in scope) covers an optional LangGraph explanation agent.
