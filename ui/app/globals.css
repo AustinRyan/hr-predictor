@@ -984,8 +984,9 @@ img { max-width: 100%; display: block; }
 
 .trail-dot {
   fill: #f4e8d6;
-  stroke: rgba(200,48,42,.3);
-  stroke-width: 1;
+  stroke: rgba(200,48,42,.55);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 6px rgba(var(--accent-rgb),.25));
 }
 
 #motion-streak { transition: opacity .15s var(--ease); }
@@ -1000,28 +1001,32 @@ img { max-width: 100%; display: block; }
 
 .batter {
   position: absolute;
-  left: 3%;
-  bottom: 10%;
-  width: 90px;
-  height: 200px;
+  left: 4%;
+  bottom: 8%;
+  width: 140px;
+  height: 300px;
   z-index: 3;
   opacity: 0;
   transition: opacity .4s var(--ease);
+  filter: drop-shadow(0 8px 20px rgba(0,0,0,.6));
+}
+@media (max-width: 900px) {
+  .batter { width: 96px; height: 220px; left: 3%; }
 }
 .batter.show { opacity: 1; }
 .batter svg { width: 100%; height: 100%; overflow: visible; }
 #bat-swing {
-  transform-origin: 60px 40px;
+  transform-origin: 60px 44px;
   transform: rotate(-45deg);
   transition: none;
 }
 .batter.swung #bat-swing {
-  animation: swingNow .35s var(--ease-bold) forwards;
+  animation: swingNow .38s var(--ease-bold) forwards;
 }
 @keyframes swingNow {
-  0%   { transform: rotate(-50deg); }
-  60%  { transform: rotate(90deg); }
-  100% { transform: rotate(75deg); }
+  0%   { transform: rotate(-55deg); }
+  55%  { transform: rotate(95deg); }
+  100% { transform: rotate(72deg); }
 }
 
 .contact-flash {
@@ -1044,27 +1049,33 @@ img { max-width: 100%; display: block; }
   font-weight: 900;
   letter-spacing: -.01em;
   opacity: 0;
-  animation: damageFloat 2.2s var(--ease) forwards;
+  animation: damageFloat 3s var(--ease) forwards;
 }
 .damage .d-k {
   font-family: var(--f-mono);
-  font-size: 9px;
+  font-size: 14px;
   letter-spacing: .2em;
-  fill: rgba(255,255,255,.6);
+  fill: rgba(255,255,255,.85);
   text-transform: uppercase;
   font-weight: 500;
+  stroke: rgba(0,0,0,.6);
+  stroke-width: 0.4;
+  paint-order: stroke;
 }
 .damage .d-v {
-  font-size: 26px;
+  font-size: 42px;
   fill: var(--accent);
-  filter: drop-shadow(0 0 6px rgba(var(--accent-rgb),.5));
+  filter: drop-shadow(0 0 10px rgba(var(--accent-rgb),.7));
+  stroke: rgba(0,0,0,.4);
+  stroke-width: 0.6;
+  paint-order: stroke;
 }
 @keyframes damageFloat {
   0%   { opacity: 0; transform: translateY(0) scale(.5); }
-  12%  { opacity: 1; transform: translateY(-8px) scale(1.15); }
-  25%  { transform: translateY(-18px) scale(1); }
-  85%  { opacity: 1; }
-  100% { opacity: 0; transform: translateY(-80px) scale(.95); }
+  10%  { opacity: 1; transform: translateY(-10px) scale(1.2); }
+  20%  { transform: translateY(-24px) scale(1); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-120px) scale(.92); }
 }
 
 .crowd-silhouette {

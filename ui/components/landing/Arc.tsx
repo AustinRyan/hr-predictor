@@ -12,6 +12,14 @@ const DAMAGE_DATA: readonly DamageEvent[] = [
 ] as const;
 
 const TRAIL_LEN = 10;
+// Minimum SVG-unit distance between ghost trail positions. Distance-gated
+// rather than scroll-delta-gated so the buffer always fills — solves the
+// "intermittent 1-3 circles" issue Claude Design's verifier flagged.
+const TRAIL_STRIDE = 44;
+// Baseball radius in SVG units. viewBox is 1600×900, path spans x:160→1500,
+// so 52 reads as ~40–50 CSS px on a typical laptop viewport. Doubled from
+// the original 22 because the stitching was invisible at that scale.
+const BALL_R = 52;
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 function clamp(v: number, a: number, b: number): number {
@@ -96,18 +104,32 @@ export function Arc() {
       }, 2400);
     };
 
-    const updateTrail = (pt: TrailPt): void => {
-      trailBuf.unshift({ x: pt.x, y: pt.y });
-      if (trailBuf.length > TRAIL_LEN) trailBuf.length = TRAIL_LEN;
+    const renderTrail = (): void => {
       trail.innerHTML = trailBuf
         .slice(1)
         .map((t, i) => {
           const age = (i + 1) / TRAIL_LEN;
-          const r = 18 * (1 - age * 0.7);
-          const op = (1 - age) * 0.45;
+          const r = BALL_R * 0.9 * (1 - age * 0.65);
+          const op = (1 - age) * 0.55;
           return `<circle class="trail-dot" cx="${t.x}" cy="${t.y}" r="${r}" opacity="${op}"/>`;
         })
         .join("");
+    };
+
+    const pushTrailIfStrided = (pt: TrailPt): void => {
+      const latest = trailBuf[0];
+      const dist = latest
+        ? Math.hypot(pt.x - latest.x, pt.y - latest.y)
+        : Infinity;
+      if (dist < TRAIL_STRIDE) return;
+      trailBuf.unshift({ x: pt.x, y: pt.y });
+      if (trailBuf.length > TRAIL_LEN) trailBuf.length = TRAIL_LEN;
+      renderTrail();
+    };
+
+    const resetTrail = (): void => {
+      trailBuf.length = 0;
+      trail.innerHTML = "";
     };
 
     const fireSwing = (): void => {
@@ -162,10 +184,17 @@ export function Arc() {
       const rot = (rawProgress * 1440) % 360;
       ball.setAttribute("transform", `translate(${pt.x},${pt.y}) rotate(${rot})`);
 
-      if (rawProgress > 0.01 && Math.abs(rawProgress - lastProgress) > 0.006) {
-        updateTrail(pt);
-        lastProgress = rawProgress;
+      // Backward-scroll reset: if user scrubs back to near the start, wipe
+      // the trail so ghost balls don't linger at stale forward positions.
+      if (rawProgress < lastProgress - 0.05) {
+        resetTrail();
       }
+      if (rawProgress > 0.01) {
+        pushTrailIfStrided(pt);
+      } else if (trailBuf.length > 0) {
+        resetTrail();
+      }
+      lastProgress = rawProgress;
 
       if (speed > 2) {
         const angle = Math.atan2(dy, dx);
@@ -185,8 +214,8 @@ export function Arc() {
       const shadowScale = 1 - altitude * 0.7;
       const shadowOp = (1 - altitude) * 0.8;
       shadow.setAttribute("cx", String(pt.x));
-      shadow.setAttribute("rx", String(26 * shadowScale));
-      shadow.setAttribute("ry", String(7 * shadowScale));
+      shadow.setAttribute("rx", String(BALL_R * 1.15 * shadowScale));
+      shadow.setAttribute("ry", String(BALL_R * 0.3 * shadowScale));
       shadow.setAttribute("opacity", rawProgress > 0.02 ? String(shadowOp) : "0");
 
       if (rawProgress > 0.015 && !swingFired) fireSwing();
@@ -259,17 +288,37 @@ export function Arc() {
           </div>
 
           <div className="batter" ref={batterRef} aria-hidden="true">
-            <svg viewBox="0 0 120 200" preserveAspectRatio="xMidYMax meet">
+            <svg viewBox="0 0 120 220" preserveAspectRatio="xMidYMax meet">
+              {/* Bat — barrel + taper + grip + knob. Swings via #bat-swing transform. */}
               <g id="bat-swing">
-                <rect x="58" y="-30" width="4" height="70" rx="2" fill="#0a0a0a" />
-                <rect x="56" y="-50" width="8" height="26" rx="4" fill="#3a2a1a" />
+                <rect x="57" y="-40" width="7" height="80" rx="3" fill="#1a0f08" stroke="#0a0a0a" strokeWidth="0.8" />
+                <rect x="56" y="-58" width="10" height="18" rx="2" fill="#3a2a1a" />
+                <rect x="54" y="-62" width="14" height="6" rx="2" fill="#0a0a0a" />
+                {/* grip wrap */}
+                <line x1="56" y1="-52" x2="66" y2="-52" stroke="#0a0a0a" strokeWidth="0.8" />
+                <line x1="56" y1="-46" x2="66" y2="-46" stroke="#0a0a0a" strokeWidth="0.8" />
               </g>
+              {/* Body silhouette */}
               <g fill="#0a0a0a">
-                <circle cx="60" cy="38" r="14" />
-                <path d="M44 50 L76 50 L82 130 L70 180 L50 180 L38 130 Z" />
-                <rect x="48" y="175" width="10" height="22" rx="2" />
-                <rect x="62" y="175" width="10" height="22" rx="2" />
-                <rect x="46" y="24" width="28" height="4" fill="var(--accent)" />
+                {/* Legs — wider batting stance */}
+                <rect x="40" y="160" width="14" height="40" rx="4" />
+                <rect x="66" y="160" width="14" height="40" rx="4" />
+                {/* Cleats */}
+                <rect x="34" y="196" width="24" height="6" rx="2" />
+                <rect x="62" y="196" width="24" height="6" rx="2" />
+                {/* Torso — tapered V with hips */}
+                <path d="M 30 62 L 90 62 L 86 110 L 82 155 L 70 160 L 50 160 L 38 155 L 34 110 Z" />
+                {/* Shoulders + belt accent */}
+                <rect x="28" y="58" width="64" height="10" rx="5" />
+                <rect x="46" y="118" width="28" height="3" fill="rgba(255,255,255,.08)" />
+                {/* Helmet / head */}
+                <circle cx="60" cy="42" r="20" />
+                {/* Face shadow strip */}
+                <rect x="42" y="44" width="36" height="8" rx="2" fill="rgba(255,255,255,.04)" />
+                {/* Clay helmet stripe */}
+                <rect x="40" y="26" width="40" height="6" rx="2" fill="var(--accent)" />
+                {/* Ear flap */}
+                <path d="M 40 42 Q 36 50 40 58 L 46 58 L 46 42 Z" />
               </g>
             </svg>
           </div>
@@ -305,13 +354,13 @@ export function Arc() {
               </radialGradient>
             </defs>
 
-            <line x1="0" y1="760" x2="1600" y2="760" stroke="rgba(255,255,255,.08)" strokeDasharray="6 10" />
-            <line x1="1420" y1="760" x2="1420" y2="640" stroke="rgba(255,255,255,.2)" strokeWidth="2" strokeDasharray="3 6" />
-            <text x="1430" y="655" fill="rgba(255,255,255,.35)" fontSize="14" letterSpacing="2">WALL</text>
+            <line x1="0" y1="760" x2="1600" y2="760" stroke="rgba(255,255,255,.16)" strokeDasharray="8 14" strokeWidth="1.5" />
+            <line x1="1420" y1="760" x2="1420" y2="620" stroke="rgba(255,255,255,.45)" strokeWidth="3" strokeDasharray="4 8" />
+            <text x="1432" y="632" fill="rgba(255,255,255,.7)" fontSize="22" letterSpacing="3" fontWeight="700">WALL</text>
 
             <ellipse
               ref={shadowRef}
-              cx="120" cy="762" rx="24" ry="6"
+              cx="120" cy="762" rx="60" ry="15"
               fill="url(#shadowGrad)" opacity="0"
             />
 
@@ -320,7 +369,7 @@ export function Arc() {
               d="M 160 720 Q 800 -180 1500 560"
               fill="none"
               stroke="url(#arcGrad)"
-              strokeWidth="2"
+              strokeWidth="3.5"
               filter="url(#arcGlow)"
               pathLength={1000}
               strokeDasharray="1000"
@@ -331,22 +380,39 @@ export function Arc() {
             <g ref={damageRef} />
 
             <g ref={ballRef} filter="url(#ballBlur)">
-              <circle className="ball-body" r="22" fill="url(#ballGrad)" />
-              <path d="M -18 -4 Q 0 -18 18 -4" stroke="#c8302a" strokeWidth="2" fill="none" strokeLinecap="round" />
-              <path d="M -18 4 Q 0 18 18 4" stroke="#c8302a" strokeWidth="2" fill="none" strokeLinecap="round" />
-              <g stroke="#c8302a" strokeWidth="1.1" strokeLinecap="round">
-                <line x1="-14" y1="-7" x2="-13" y2="-3" />
-                <line x1="-8" y1="-11" x2="-7" y2="-7" />
-                <line x1="0" y1="-12" x2="0" y2="-8" />
-                <line x1="8" y1="-11" x2="7" y2="-7" />
-                <line x1="14" y1="-7" x2="13" y2="-3" />
-                <line x1="-14" y1="7" x2="-13" y2="3" />
-                <line x1="-8" y1="11" x2="-7" y2="7" />
-                <line x1="0" y1="12" x2="0" y2="8" />
-                <line x1="8" y1="11" x2="7" y2="7" />
-                <line x1="14" y1="7" x2="13" y2="3" />
+              {/* Soft halo behind the ball so it reads against the dark arc */}
+              <circle r={BALL_R * 1.35} fill="rgba(244,232,214,.08)" />
+              <circle r={BALL_R * 1.1} fill="rgba(244,232,214,.12)" />
+              {/* Ball body */}
+              <circle className="ball-body" r={BALL_R} fill="url(#ballGrad)" stroke="rgba(138,118,86,.6)" strokeWidth="1" />
+              {/* Two curving seams — r≈52 so the visible stitch curve sits at ±42 */}
+              <path
+                d={`M ${-BALL_R * 0.82} ${-BALL_R * 0.18} Q 0 ${-BALL_R * 0.82} ${BALL_R * 0.82} ${-BALL_R * 0.18}`}
+                stroke="#c8302a" strokeWidth="4" fill="none" strokeLinecap="round"
+              />
+              <path
+                d={`M ${-BALL_R * 0.82} ${BALL_R * 0.18} Q 0 ${BALL_R * 0.82} ${BALL_R * 0.82} ${BALL_R * 0.18}`}
+                stroke="#c8302a" strokeWidth="4" fill="none" strokeLinecap="round"
+              />
+              {/* Stitch ticks: five along each seam, perpendicular-ish */}
+              <g stroke="#c8302a" strokeWidth="2.5" strokeLinecap="round">
+                <line x1={-BALL_R * 0.64} y1={-BALL_R * 0.32} x2={-BALL_R * 0.58} y2={-BALL_R * 0.14} />
+                <line x1={-BALL_R * 0.36} y1={-BALL_R * 0.5}  x2={-BALL_R * 0.3}  y2={-BALL_R * 0.32} />
+                <line x1="0"              y1={-BALL_R * 0.55} x2="0"              y2={-BALL_R * 0.36} />
+                <line x1={BALL_R * 0.36}  y1={-BALL_R * 0.5}  x2={BALL_R * 0.3}   y2={-BALL_R * 0.32} />
+                <line x1={BALL_R * 0.64}  y1={-BALL_R * 0.32} x2={BALL_R * 0.58}  y2={-BALL_R * 0.14} />
+                <line x1={-BALL_R * 0.64} y1={BALL_R * 0.32}  x2={-BALL_R * 0.58} y2={BALL_R * 0.14}  />
+                <line x1={-BALL_R * 0.36} y1={BALL_R * 0.5}   x2={-BALL_R * 0.3}  y2={BALL_R * 0.32}  />
+                <line x1="0"              y1={BALL_R * 0.55}  x2="0"              y2={BALL_R * 0.36}  />
+                <line x1={BALL_R * 0.36}  y1={BALL_R * 0.5}   x2={BALL_R * 0.3}   y2={BALL_R * 0.32}  />
+                <line x1={BALL_R * 0.64}  y1={BALL_R * 0.32}  x2={BALL_R * 0.58}  y2={BALL_R * 0.14}  />
               </g>
-              <ellipse cx="-7" cy="-7" rx="5" ry="3" fill="rgba(255,255,255,.5)" />
+              {/* Specular highlight — sphere fakery */}
+              <ellipse
+                cx={-BALL_R * 0.32} cy={-BALL_R * 0.32}
+                rx={BALL_R * 0.26} ry={BALL_R * 0.15}
+                fill="rgba(255,255,255,.55)"
+              />
             </g>
 
             <g ref={streakGRef} opacity="0">
