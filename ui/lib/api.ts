@@ -30,30 +30,35 @@ export type PicksQuery = {
   sort?: "prob" | "expected_hrs";
 };
 
-async function safe<T>(fn: () => Promise<T>): Promise<T | null> {
+async function safe<T>(fn: () => Promise<T>, label: string): Promise<T | null> {
   try {
     return await fn();
   } catch (err) {
-    console.error("DB query failed:", err);
+    // Log loudly — Vercel function logs pick this up and are how we
+    // diagnose "site shows mock data" reports. Includes the label so
+    // you can tell which query failed when multiple fire in parallel.
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error(`[api:${label}] DB query failed:`, msg, stack);
     return null;
   }
 }
 
 export async function getPicksToday(q: PicksQuery = {}): Promise<PickSummary[] | null> {
-  return safe(() => queryPicksToday(q));
+  return safe(() => queryPicksToday(q), "picksToday");
 }
 
 export async function getPlayer(mlbamId: number): Promise<PlayerDetail | null> {
-  return safe(() => queryPlayer(mlbamId));
+  return safe(() => queryPlayer(mlbamId), `player:${mlbamId}`);
 }
 
 export async function getMatchup(
   gamePk: number,
   batterId: number,
 ): Promise<MatchupDetail | null> {
-  return safe(() => queryMatchup(gamePk, batterId));
+  return safe(() => queryMatchup(gamePk, batterId), `matchup:${gamePk}/${batterId}`);
 }
 
 export async function getModelMetrics(): Promise<ModelMetricsResponse | null> {
-  return safe(() => queryModelMetrics());
+  return safe(() => queryModelMetrics(), "modelMetrics");
 }

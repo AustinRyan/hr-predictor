@@ -1,18 +1,23 @@
 /**
- * Direct Postgres client for Next.js server components / route handlers.
+ * Neon serverless Postgres client.
  *
- * Previously the frontend fetched from the FastAPI backend. Now it queries
- * Postgres directly so Vercel can serve the site without a separate
- * hosted backend — the user runs inference locally and writes fresh
- * predictions into the same Neon database the deployed frontend reads.
+ * We use @neondatabase/serverless instead of the traditional `postgres`
+ * library because:
+ *   1. It speaks Neon's HTTP proxy (fewer connection headaches in
+ *      Vercel's cold-start serverless environment — no TCP pool to
+ *      warm, no SSL handshake per invocation).
+ *   2. The tagged-template API is compatible with the porsager/postgres
+ *      style our query modules already use, so call-sites don't change.
  *
- * Connection-pool strategy: `postgres` maintains its own pool; one
- * singleton per Node process. On Vercel serverless the process is
- * short-lived so we don't worry about pool lifetime — each invocation
- * uses Neon's pooled connection string (`-pooler` in the host).
+ * In production (Vercel) `DATABASE_URL` is injected as an env var. In
+ * local dev it comes from `ui/.env.local`. Either way, missing URL
+ * throws loudly so `lib/api.ts::safe()` logs a real error instead of
+ * silently falling back to mock data.
  */
 
-import postgres, { type Sql } from "postgres";
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+
+type Sql = NeonQueryFunction<false, false>;
 
 declare global {
   var __hrp_sql: Sql | undefined;
@@ -22,21 +27,18 @@ function makeClient(): Sql {
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error(
-      "DATABASE_URL is not set. Put the Postgres connection string in " +
-        ".env.local locally, or set it on the Vercel project.",
+      "DATABASE_URL is not set. On Vercel, add it under " +
+        "Project Settings → Environment Variables. Locally, put it " +
+        "in ui/.env.local.",
     );
   }
-  return postgres(url, {
-    // Neon requires TLS; most self-hosted setups do too. The ?sslmode=require
-    // in the URL already gates this, but the lib needs the explicit flag.
-    ssl: "require",
-    // Cap concurrency — Next.js SSR parallelism would otherwise burst
-    // connections beyond Neon's free-tier pooler ceiling.
-    max: 5,
-    idle_timeout: 20,
-  });
+  return neon(url);
 }
 
-/** Shared postgres client. Reuses across hot-reload in dev. */
 export const sql: Sql =
   globalThis.__hrp_sql ?? (globalThis.__hrp_sql = makeClient());
+
+/** True if DATABASE_URL looks configured. Useful for /api/health. */
+export function isConfigured(): boolean {
+  return Boolean(process.env.DATABASE_URL);
+}
