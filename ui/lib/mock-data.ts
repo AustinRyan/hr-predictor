@@ -11,6 +11,19 @@ export type CtxChip = {
   neg?: boolean;
 };
 
+export type FactorTone = "up" | "down" | "neutral";
+
+export type FactorItem = {
+  label: string;
+  value: string;
+  tone?: FactorTone;
+};
+
+export type FactorGroup = {
+  label: string;
+  items: FactorItem[];
+};
+
 export type Pick = {
   id: number;
   first: string;
@@ -28,6 +41,7 @@ export type Pick = {
   edge: string;
   neg?: boolean;
   ctx: CtxChip[];
+  factors?: FactorGroup[];
   // Optional for mock data; populated on real picks so rows can link to
   // /matchup/[gamePk]/[batterId] for the full breakdown.
   gamePk?: number;

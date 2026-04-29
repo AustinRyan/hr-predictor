@@ -1,6 +1,6 @@
 # ui/ — Homerun frontend
 
-**Purpose:** Next.js 15 App Router frontend for the HR Predictor. Implements the stadium-brutalist design from `phases/phase7/design-source/project/Homerun.html`.
+**Purpose:** Next.js 16.2 App Router frontend for the HR Predictor. Implements the stadium-brutalist design from `phases/phase7/design-source/project/Homerun.html`.
 
 See `phases/phase7/PROMPT.md` for the full phased scope. This file describes the code layout and conventions.
 
@@ -20,9 +20,10 @@ ui/
 ├── components/
 │   ├── landing/          # server components (Nav, Hero, Slate, Scoreboard, ArcPlaceholder, How, Handoff, Footer)
 │   └── rankings/
-│       └── RankingsApp.tsx  # client component — filters + parlay rail
-└── lib/
-    └── mock-data.ts      # typed PICKS/SCOREBOARD/SLATE_CARDS/TICKER (Stage 4 replaces w/ real API)
+│       └── RankingsApp.tsx  # client component — filters + evidence-led board + parlay rail
+├── lib/
+│   └── mock-data.ts      # typed PICKS/SCOREBOARD/SLATE_CARDS/TICKER (Stage 4 replaces w/ real API)
+└── remotion/             # renderable promotional video compositions
 ```
 
 ## Design tokens — DO NOT refactor into Tailwind theme
@@ -32,7 +33,9 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
 - **Stage 1 (now):** scaffold + static landing w/ mock data, no scroll animation yet.
 - **Stage 2:** scroll-linked signature arc, chyrons, loading ritual, HR easter egg.
 - **Stage 3:** parlay lock/ticket flip + share-as-image.
-- **Stage 4:** wire rankings + hero #1 to `/picks/today` via `NEXT_PUBLIC_API_URL`.
+- **Stage 4:** wire rankings + hero #1 to live predictions. The app now
+  queries Neon directly from server code, filters to one active model version
+  for the latest slate, and uses MLB Eastern date for "today".
 - **Stage 5:** `/player/[id]`, `/matchup/[gamePk]/[batterId]`, `/model` pages in same aesthetic.
 
 ## Conventions
@@ -40,6 +43,11 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
 - No `any`. Any third-party gap uses `unknown` + narrow.
 - Tabular numerics on every displayed number (`font-variant-numeric: tabular-nums`).
 - All probability UI uses both a bar AND text, never color alone.
+- The leaderboard keeps one dominant score column, shows four compact
+  factor signals by default, and puts the full `BAT`, `MATCH`, `PARK/WX`,
+  and `MODEL` factor set inside the expandable evidence drawer. Keep new
+  leaderboard data in `PickSummary -> adapter -> Pick.factors`; avoid adding
+  more standalone columns unless the factor needs to drive sorting.
 - MLB headshots via `https://img.mlbstatic.com/mlb-photos/image/upload/w_426,q_auto/v1/people/{id}/headshot/67/current`; use native `<img>` with `eslint-disable-next-line @next/next/no-img-element` (not `<Image>`) so duotone CSS filters compose cleanly.
 
 ## Commands
@@ -48,4 +56,6 @@ cd ui
 npm run dev      # :3000
 npm run build    # prod build
 npm run lint     # eslint
+npm run remotion # Remotion Studio on :3001
+npm run render:promo
 ```

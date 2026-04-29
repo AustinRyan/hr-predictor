@@ -1,11 +1,23 @@
 "use client";
 
+import { Check, ChevronDown, ExternalLink, Plus } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { PICKS, TEAMS, headshotUrl, type Pick } from "@/lib/mock-data";
+import {
+  PICKS,
+  TEAMS,
+  headshotUrl,
+  type FactorGroup,
+  type FactorItem,
+  type Pick,
+} from "@/lib/mock-data";
 import { Ticket } from "./Ticket";
 
 type SortKey = "prob" | "ehr" | "edge";
+type FactorSignal = {
+  group: string;
+  item: FactorItem;
+};
 
 function parseEdge(e: string): number {
   return parseFloat(e.replace("+", ""));
@@ -14,6 +26,60 @@ function parseEdge(e: string): number {
 type RankingsProps = {
   picks?: readonly Pick[];
 };
+
+function fallbackFactors(p: Pick): FactorGroup[] {
+  return [
+    {
+      label: "READ",
+      items: p.ctx.map((c) => ({
+        label: c.k,
+        value: c.v,
+        tone: c.pos ? "up" : c.neg ? "down" : "neutral",
+      })),
+    },
+    {
+      label: "MODEL",
+      items: [
+        { label: "EHR", value: p.ehr.toFixed(3), tone: "neutral" },
+        { label: "LIFT", value: p.edge, tone: p.edge.startsWith("-") ? "down" : "up" },
+      ],
+    },
+  ];
+}
+
+function primaryFactor(group: FactorGroup): FactorItem | null {
+  const preferred: Record<string, string[]> = {
+    BAT: ["BRL", "EV90", "EHR"],
+    MATCH: ["SP HR/9", "SP BRL", "HAND"],
+    "PARK/WX": ["PARK", "WIND CF", "TEMP"],
+    MODEL: [],
+  };
+  const labels = preferred[group.label] ?? [];
+  for (const label of labels) {
+    const item = group.items.find((candidate) => candidate.label === label);
+    if (item) return item;
+  }
+  return group.items.find((item) => item.tone === "up") ?? group.items[0] ?? null;
+}
+
+function summarySignals(groups: FactorGroup[]): FactorSignal[] {
+  const preferredOrder = ["BAT", "MATCH", "PARK/WX", "MODEL"];
+  const orderedGroups = [
+    ...preferredOrder
+      .map((label) => groups.find((group) => group.label === label))
+      .filter((group): group is FactorGroup => Boolean(group)),
+    ...groups.filter((group) => !preferredOrder.includes(group.label)),
+  ];
+
+  return orderedGroups.slice(0, 4).flatMap((group) => {
+    const item = primaryFactor(group);
+    return item ? [{ group: group.label, item }] : [];
+  });
+}
+
+function signalGroupLabel(label: string): string {
+  return label === "PARK/WX" ? "PARK" : label;
+}
 
 export function RankingsApp({ picks }: RankingsProps = {}) {
   const source: readonly Pick[] = picks && picks.length > 0 ? picks : PICKS;
@@ -27,6 +93,7 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [refreshPhase, setRefreshPhase] = useState<string>("");
   const [onePerGame, setOnePerGame] = useState<boolean>(false);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
 
   const filtered: Pick[] = useMemo(() => {
     const rows = source.filter((p) => p.prob >= minProb && (team === "" || p.team === team));
@@ -65,6 +132,15 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
 
   function toggleLeg(id: number): void {
     setParlay((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleExpanded(rowId: string): void {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
   }
 
   async function runRefresh(): Promise<void> {
@@ -147,7 +223,7 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                   className={`seg-btn ${sort === k ? "active" : ""}`}
                   onClick={() => setSort(k)}
                 >
-                  {k === "prob" ? "Probability" : k === "ehr" ? "E[HR]" : "Book edge"}
+                  {k === "prob" ? "Probability" : k === "ehr" ? "E[HR]" : "Model lift"}
                 </button>
               ))}
             </div>
@@ -245,10 +321,8 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
               <div className="rk-c rk-c-rank">#</div>
               <div className="rk-c rk-c-player">PLAYER</div>
               <div className="rk-c rk-c-match">MATCHUP</div>
-              <div className="rk-c rk-c-ctx">CTX</div>
+              <div className="rk-c rk-c-factors">FACTORS</div>
               <div className="rk-c rk-c-prob">P(HR)</div>
-              <div className="rk-c rk-c-ehr">E[HR]</div>
-              <div className="rk-c rk-c-edge">EDGE</div>
               <div className="rk-c rk-c-add" />
             </div>
             <div className="rk-body">
@@ -265,18 +339,24 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                   const rank = i + 1;
                   const edgeNeg = p.neg || p.edge.startsWith("-");
                   const added = parlay.includes(p.id);
+                  const rowId = `${p.gamePk ?? "player"}-${p.id}`;
+                  const expanded = expandedRows.has(rowId);
                   const matchupHref = p.gamePk
                     ? `/matchup/${p.gamePk}/${p.id}`
                     : `/player/${p.id}`;
+                  const factorGroups = p.factors && p.factors.length > 0 ? p.factors : fallbackFactors(p);
+                  const signals = summarySignals(factorGroups);
                   return (
-                    <Link
-                      key={p.id}
-                      href={matchupHref}
-                      className={`rk-row ${rank <= 3 ? "top3" : ""}`}
-                      aria-label={`View full breakdown for ${p.first} ${p.last}`}
+                    <article
+                      key={rowId}
+                      className={`rk-row ${rank <= 3 ? "top3" : ""} ${expanded ? "expanded" : ""}`}
                     >
                       <div className="rk-rank">{rank}</div>
-                      <div className="rk-player">
+                      <Link
+                        href={matchupHref}
+                        className="rk-player rk-player-link"
+                        aria-label={`View full breakdown for ${p.first} ${p.last}`}
+                      >
                         <div className="rk-avatar">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={headshotUrl(p.id)} alt="" />
@@ -291,19 +371,23 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                             <span>{p.hand}</span>
                           </div>
                         </div>
-                      </div>
-                      <div className="rk-match">
+                      </Link>
+                      <Link href={matchupHref} className="rk-match rk-match-link">
                         <div className="rk-match-top">vs {p.vs}</div>
                         <div className="rk-match-bot">{p.park} · {p.time}</div>
-                      </div>
-                      <div className="rk-ctx">
-                        {p.ctx.map((c, j) => (
-                          <span
-                            key={j}
-                            className={`rk-ctx-chip ${c.pos ? "pos" : ""} ${c.neg ? "neg" : ""}`}
+                      </Link>
+                      <div className="rk-factor-summary">
+                        {signals.map(({ group, item }) => (
+                          <div
+                            className={`rk-signal ${item.tone ?? "neutral"}`}
+                            key={`${group}-${item.label}-${item.value}`}
                           >
-                            {c.k} {c.v}
-                          </span>
+                            <span className="rk-signal-group">{signalGroupLabel(group)}</span>
+                            <span className="rk-signal-value">
+                              <b>{item.value}</b>
+                              <span>{item.label}</span>
+                            </span>
+                          </div>
                         ))}
                       </div>
                       <div className="rk-prob">
@@ -311,22 +395,58 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                         <div className="rk-prob-bar">
                           <span style={{ width: `${Math.min(100, p.prob * 5)}%` }} />
                         </div>
+                        <div className="rk-prob-sub">
+                          <span>E {p.ehr.toFixed(3)}</span>
+                          <span className={edgeNeg ? "neg" : "pos"}>{p.edge}</span>
+                        </div>
                       </div>
-                      <div className="rk-ehr">{p.ehr.toFixed(3)}</div>
-                      <div className={`rk-edge ${edgeNeg ? "neg" : "pos"}`}>{p.edge}</div>
-                      <button
-                        type="button"
-                        className={`rk-add ${added ? "added" : ""}`}
-                        aria-label={added ? "Remove from parlay" : "Add to parlay"}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          toggleLeg(p.id);
-                        }}
-                      >
-                        {added ? "✓" : "+"}
-                      </button>
-                    </Link>
+                      <div className="rk-actions">
+                        <button
+                          type="button"
+                          className={`rk-detail-toggle ${expanded ? "open" : ""}`}
+                          aria-label={expanded ? "Hide factors" : "Show all factors"}
+                          aria-expanded={expanded}
+                          aria-controls={`rk-detail-${rowId}`}
+                          onClick={() => toggleExpanded(rowId)}
+                        >
+                          <ChevronDown size={16} strokeWidth={2.4} />
+                        </button>
+                        <button
+                          type="button"
+                          className={`rk-add ${added ? "added" : ""}`}
+                          aria-label={added ? "Remove from parlay" : "Add to parlay"}
+                          onClick={() => toggleLeg(p.id)}
+                        >
+                          {added ? <Check size={15} strokeWidth={2.6} /> : <Plus size={16} strokeWidth={2.5} />}
+                        </button>
+                      </div>
+                      {expanded && (
+                        <div className="rk-detail" id={`rk-detail-${rowId}`}>
+                          <div className="rk-detail-groups">
+                            {factorGroups.map((group) => (
+                              <section className="rk-detail-group" key={group.label}>
+                                <div className="rk-detail-label">{group.label}</div>
+                                <div className="rk-detail-items">
+                                  {group.items.map((item) => (
+                                    <div
+                                      className={`rk-detail-item ${item.tone ?? "neutral"}`}
+                                      key={`${group.label}-${item.label}-${item.value}`}
+                                    >
+                                      <span>{item.label}</span>
+                                      <b>{item.value}</b>
+                                    </div>
+                                  ))}
+                                </div>
+                              </section>
+                            ))}
+                          </div>
+                          <Link href={matchupHref} className="rk-detail-link">
+                            <ExternalLink size={14} strokeWidth={2.4} />
+                            Breakdown
+                          </Link>
+                        </div>
+                      )}
+                    </article>
                   );
                 })
               )}

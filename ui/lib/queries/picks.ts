@@ -29,6 +29,13 @@ type Row = {
   b_barrel_pct_season: string | null;
   b_p90_ev_season: string | null;
   park_hr_factor_hand: string | null;
+  p_hr_per_9_season: string | null;
+  p_barrel_pct_allowed_season: string | null;
+  ctx_batting_order: number | null;
+  ctx_projected_pa: string | null;
+  wx_wind_carry_cf: string | null;
+  wx_temperature_f: string | null;
+  wx_air_density_relative: string | null;
   home_abbr: string | null;
   away_abbr: string | null;
 };
@@ -37,7 +44,7 @@ function topContribs(raw: Record<string, number> | null): FeatureContribution[] 
   if (!raw) return [];
   return Object.entries(raw)
     .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
-    .slice(0, 3)
+    .slice(0, 5)
     .map(([name, contribution]) => ({ name, contribution: Number(contribution) }));
 }
 
@@ -68,6 +75,13 @@ function toPick(row: Row): PickSummary {
     barrel_pct_season: n(row.b_barrel_pct_season),
     p90_ev_season: n(row.b_p90_ev_season),
     park_hr_factor_hand: n(row.park_hr_factor_hand),
+    pitcher_hr_per_9_season: n(row.p_hr_per_9_season),
+    pitcher_barrel_pct_allowed_season: n(row.p_barrel_pct_allowed_season),
+    batting_order: row.ctx_batting_order === null ? null : Number(row.ctx_batting_order),
+    projected_pas: n(row.ctx_projected_pa),
+    wind_carry_cf: n(row.wx_wind_carry_cf),
+    temperature_f: n(row.wx_temperature_f),
+    air_density_relative: n(row.wx_air_density_relative),
     top_contributing_features: topContribs(row.feature_contributions),
     model_version: row.model_version,
   };
@@ -80,7 +94,37 @@ export type PicksQuery = {
   sort?: "prob" | "expected_hrs";
 };
 
-async function queryForDate(targetDate: string, q: PicksQuery): Promise<PickSummary[]> {
+function currentMlbDateString(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+async function activeModelVersion(): Promise<string | null> {
+  const [row] = (await sql`
+    WITH latest_date AS (
+      SELECT MAX(game_date) AS d FROM predictions
+    )
+    SELECT p.model_version
+    FROM predictions p
+    JOIN latest_date ld ON p.game_date = ld.d
+    GROUP BY p.model_version
+    ORDER BY COUNT(*) DESC, MAX(p.generated_at) DESC NULLS LAST
+    LIMIT 1
+  `) as unknown as { model_version: string | null }[];
+  return row?.model_version ?? null;
+}
+
+async function queryForDate(
+  targetDate: string,
+  q: PicksQuery,
+  modelVersion: string,
+): Promise<PickSummary[]> {
   const limit = q.limit ?? 20;
   const minProb = q.minProb ?? 0;
   const team = q.team ?? null;
@@ -105,6 +149,13 @@ async function queryForDate(targetDate: string, q: PicksQuery): Promise<PickSumm
       mf.b_barrel_pct_season,
       mf.b_p90_ev_season,
       mf.park_hr_factor_hand,
+      mf.p_hr_per_9_season,
+      mf.p_barrel_pct_allowed_season,
+      mf.ctx_batting_order,
+      mf.ctx_projected_pa,
+      mf.wx_wind_carry_cf,
+      mf.wx_temperature_f,
+      mf.wx_air_density_relative,
       tm_home.abbr AS home_abbr,
       tm_away.abbr AS away_abbr
     FROM predictions p
@@ -120,6 +171,7 @@ async function queryForDate(targetDate: string, q: PicksQuery): Promise<PickSumm
      AND mf.pitcher_id = p.pitcher_id
      AND mf.game_date = p.game_date
     WHERE p.game_date = ${targetDate}
+      AND p.model_version = ${modelVersion}
       AND p.prob_at_least_one_hr >= ${minProb}
       AND (${team}::text IS NULL OR tm_home.abbr = ${team} OR tm_away.abbr = ${team})
     ORDER BY
@@ -132,17 +184,21 @@ async function queryForDate(targetDate: string, q: PicksQuery): Promise<PickSumm
 }
 
 export async function picksToday(q: PicksQuery = {}): Promise<PickSummary[]> {
-  // Current UTC date. Matches FastAPI behavior (datetime.now(UTC).date()).
-  const today = new Date().toISOString().slice(0, 10);
-  const picks = await queryForDate(today, q);
+  const modelVersion = await activeModelVersion();
+  if (!modelVersion) return [];
+
+  const today = currentMlbDateString();
+  const picks = await queryForDate(today, q, modelVersion);
   if (picks.length > 0) return picks;
 
   // Fallback: pick the most recent date that has predictions. Inference
   // runs locally on the user's machine and may lag by a day, especially
   // across the UTC date boundary.
   const [latest] = (await sql`
-    SELECT MAX(game_date)::text AS d FROM predictions
+    SELECT MAX(game_date)::text AS d
+    FROM predictions
+    WHERE model_version = ${modelVersion}
   `) as unknown as { d: string | null }[];
   if (!latest?.d || latest.d === today) return picks;
-  return queryForDate(latest.d, q);
+  return queryForDate(latest.d, q, modelVersion);
 }

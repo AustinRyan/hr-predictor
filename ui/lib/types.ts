@@ -33,6 +33,13 @@ export type PickSummary = {
   barrel_pct_season: number | null;
   p90_ev_season: number | null;
   park_hr_factor_hand: number | null;
+  pitcher_hr_per_9_season: number | null;
+  pitcher_barrel_pct_allowed_season: number | null;
+  batting_order: number | null;
+  projected_pas: number | null;
+  wind_carry_cf: number | null;
+  temperature_f: number | null;
+  air_density_relative: number | null;
 
   top_contributing_features: FeatureContribution[];
 

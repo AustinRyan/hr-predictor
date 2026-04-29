@@ -20,6 +20,9 @@
 # production
 /build
 
+# generated media
+/public/audio/homerun-promo-bed.wav
+
 # misc
 .DS_Store
 *.pem

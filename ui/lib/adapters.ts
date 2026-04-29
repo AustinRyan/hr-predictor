@@ -9,8 +9,8 @@
  * this prediction.
  */
 
-import type { CtxChip, Pick as DesignPick } from "./mock-data";
-import type { PickSummary } from "./types";
+import type { CtxChip, FactorGroup, FactorItem, Pick as DesignPick } from "./mock-data";
+import type { FeatureContribution, PickSummary } from "./types";
 
 function splitName(
   full: string | null,
@@ -96,6 +96,134 @@ function normalizeHand(bats: string | null): "L" | "R" | "S" {
   return "R";
 }
 
+function factor(label: string, value: string | null, tone: FactorItem["tone"] = "neutral"): FactorItem | null {
+  if (value === null || value === "NaN") return null;
+  return { label, value, tone };
+}
+
+function compactNumber(value: number | null, digits = 1): string | null {
+  return value === null ? null : value.toFixed(digits);
+}
+
+function pct(value: number | null, digits = 0): string | null {
+  return value === null ? null : `${(value * 100).toFixed(digits)}%`;
+}
+
+function signedDelta(value: number | null, baseline: number, digits = 0): string | null {
+  if (value === null) return null;
+  const delta = value - baseline;
+  const sign = delta >= 0 ? "+" : "";
+  return `${sign}${delta.toFixed(digits)}`;
+}
+
+function toneFromDelta(value: number | null, baseline: number, threshold: number): FactorItem["tone"] {
+  if (value === null) return "neutral";
+  const delta = value - baseline;
+  if (delta > threshold) return "up";
+  if (delta < -threshold) return "down";
+  return "neutral";
+}
+
+function toneFromContribution(value: number): FactorItem["tone"] {
+  if (value > 0) return "up";
+  if (value < 0) return "down";
+  return "neutral";
+}
+
+function formatContribution(value: number): string {
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}`;
+}
+
+function featureLabel(name: string): string {
+  const exact: Record<string, string> = {
+    b_barrel_pct_7d: "BRL 7D",
+    b_barrel_pct_14d: "BRL 14D",
+    b_barrel_pct_30d: "BRL 30D",
+    b_barrel_pct_season: "BRL SEAS",
+    b_p90_ev_7d: "EV90 7D",
+    b_p90_ev_14d: "EV90 14D",
+    b_p90_ev_30d: "EV90 30D",
+    b_p90_ev_season: "EV90 SEAS",
+    b_xiso_30d: "xISO 30D",
+    b_xiso_season: "xISO SEAS",
+    b_hr_per_pa_30d: "HR/PA 30D",
+    b_hr_per_pa_season: "HR/PA SEAS",
+    p_hr_per_9_season: "SP HR/9",
+    p_barrel_pct_allowed_season: "SP BRL",
+    p_ff_velo_avg: "SP FF Velo",
+    p_tto_penalty: "TTO",
+    bp_barrel_pct_allowed_season: "BP BRL",
+    bp_hr_per_9_season: "BP HR/9",
+    park_hr_factor_hand: "Park HR",
+    park_hr_factor_hand_3yr: "Park 3Y",
+    wx_temperature_f: "Temp",
+    wx_air_density_relative: "Air",
+    wx_wind_carry_cf: "Wind CF",
+    wx_wind_carry_lf: "Wind LF",
+    wx_wind_carry_rf: "Wind RF",
+    ctx_batting_order: "Slot",
+    ctx_projected_pa: "PA",
+    ctx_is_home: "Home",
+    ctx_same_hand: "Hand",
+  };
+  if (exact[name]) return exact[name];
+  return name
+    .replace(/^(b|p|bp|wx|ctx)_/, "")
+    .replaceAll("_pct", "%")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function modelDriverFactors(features: FeatureContribution[]): FactorItem[] {
+  return features.slice(0, 5).map((f) => ({
+    label: featureLabel(f.name),
+    value: formatContribution(f.contribution),
+    tone: toneFromContribution(f.contribution),
+  }));
+}
+
+function factorGroups(p: PickSummary): FactorGroup[] {
+  const hand =
+    p.batter_bats && p.pitcher_throws
+      ? `${p.batter_bats.toUpperCase()}/${p.pitcher_throws.toUpperCase()}`
+      : null;
+  const groups: FactorGroup[] = [
+    {
+      label: "BAT",
+      items: [
+        factor("BRL", pct(p.barrel_pct_season), (p.barrel_pct_season ?? 0) >= 0.1 ? "up" : "neutral"),
+        factor("EV90", compactNumber(p.p90_ev_season, 0), (p.p90_ev_season ?? 0) >= 106 ? "up" : "neutral"),
+        factor("EHR", compactNumber(p.expected_hrs, 3), "neutral"),
+      ].filter((x): x is FactorItem => x !== null),
+    },
+    {
+      label: "MATCH",
+      items: [
+        factor("SP HR/9", compactNumber(p.pitcher_hr_per_9_season, 2), (p.pitcher_hr_per_9_season ?? 0) >= 1.2 ? "up" : "neutral"),
+        factor("SP BRL", pct(p.pitcher_barrel_pct_allowed_season, 1), (p.pitcher_barrel_pct_allowed_season ?? 0) >= 0.09 ? "up" : "neutral"),
+        factor("HAND", hand, p.batter_bats && p.pitcher_throws && p.batter_bats === p.pitcher_throws ? "down" : "neutral"),
+        factor("SLOT", p.batting_order === null ? null : `${p.batting_order}`, p.batting_order !== null && p.batting_order <= 4 ? "up" : "neutral"),
+        factor("PA", compactNumber(p.projected_pas, 1), (p.projected_pas ?? 0) >= 4.4 ? "up" : "neutral"),
+      ].filter((x): x is FactorItem => x !== null),
+    },
+    {
+      label: "PARK/WX",
+      items: [
+        factor("PARK", signedDelta(p.park_hr_factor_hand, 100), toneFromDelta(p.park_hr_factor_hand, 100, 3)),
+        factor("WIND CF", compactNumber(p.wind_carry_cf, 1), toneFromDelta(p.wind_carry_cf, 0, 1)),
+        factor("TEMP", p.temperature_f === null ? null : `${p.temperature_f.toFixed(0)}F`, (p.temperature_f ?? 0) >= 75 ? "up" : "neutral"),
+        factor("AIR", compactNumber(p.air_density_relative, 3), p.air_density_relative !== null && p.air_density_relative < 0.98 ? "up" : "neutral"),
+      ].filter((x): x is FactorItem => x !== null),
+    },
+    {
+      label: "MODEL",
+      items: modelDriverFactors(p.top_contributing_features),
+    },
+  ];
+  return groups.filter((group) => group.items.length > 0);
+}
+
 export function adaptPickSummary(p: PickSummary): DesignPick {
   const { first, last } = splitName(p.batter_name, p.batter_id);
   const edgeStr = formatEdge(p.expected_hrs, p.prob_at_least_one_hr);
@@ -119,6 +247,7 @@ export function adaptPickSummary(p: PickSummary): DesignPick {
     edge: edgeStr,
     neg: edgeNeg || undefined,
     ctx: ctxFromStats(p),
+    factors: factorGroups(p),
     gamePk: p.game_pk,
   };
 }

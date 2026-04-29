@@ -6,15 +6,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "music:promo": "node remotion/generate-promo-music.mjs",
+    "remotion": "npm run music:promo && remotion studio remotion/index.ts --port=3001",
+    "render:promo": "npm run music:promo && remotion render remotion/index.ts HomerunPromo out/homerun-promo.mp4",
+    "still:promo": "npm run music:promo && remotion still remotion/index.ts HomerunPromo out/homerun-promo-poster.png --frame=270"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "@remotion/cli": "4.0.454",
     "lucide-react": "^1.9.0",
     "next": "16.2.4",
     "postgres": "^3.4.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "remotion": "4.0.454"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
