@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -11,8 +11,10 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from src.api.cache import cached
-from src.api.dependencies import get_db
+from src.api.dependencies import get_db, get_model
 from src.api.schemas.picks import FeatureContribution, PickSummary
+from src.core.time import current_mlb_date
+from src.models.artifacts import LoadedModel
 
 _log = logging.getLogger(__name__)
 
@@ -39,6 +41,13 @@ _PICKS_TODAY_SQL = text("""
         mf.b_barrel_pct_season,
         mf.b_p90_ev_season,
         mf.park_hr_factor_hand,
+        mf.p_hr_per_9_season,
+        mf.p_barrel_pct_allowed_season,
+        mf.ctx_batting_order,
+        mf.ctx_projected_pa,
+        mf.wx_wind_carry_cf,
+        mf.wx_temperature_f,
+        mf.wx_air_density_relative,
         tm_home.abbr AS home_abbr,
         tm_away.abbr AS away_abbr,
         ds.home_team_id,
@@ -58,6 +67,7 @@ _PICKS_TODAY_SQL = text("""
      AND mf.pitcher_id = p.pitcher_id
      AND mf.game_date = p.game_date
     WHERE p.game_date = :target_date
+      AND p.model_version = :model_version
       AND p.prob_at_least_one_hr >= :min_prob
       AND (CAST(:team AS text) IS NULL
            OR tm_home.abbr = CAST(:team AS text)
@@ -74,8 +84,8 @@ _PICKS_TODAY_SQL = text("""
 
 def _row_to_pick(row) -> PickSummary:
     contribs_raw = row["feature_contributions"] or {}
-    # Top-3 by absolute contribution
-    sorted_items = sorted(contribs_raw.items(), key=lambda kv: -abs(kv[1]))[:3]
+    # Top model drivers by absolute contribution.
+    sorted_items = sorted(contribs_raw.items(), key=lambda kv: -abs(kv[1]))[:5]
     contributions = [FeatureContribution(name=k, contribution=float(v)) for k, v in sorted_items]
 
     # Team abbreviation: we don't have a projected_lineups join here; expose as None
@@ -106,6 +116,15 @@ def _row_to_pick(row) -> PickSummary:
         barrel_pct_season=_f("b_barrel_pct_season"),
         p90_ev_season=_f("b_p90_ev_season"),
         park_hr_factor_hand=_f("park_hr_factor_hand"),
+        pitcher_hr_per_9_season=_f("p_hr_per_9_season"),
+        pitcher_barrel_pct_allowed_season=_f("p_barrel_pct_allowed_season"),
+        batting_order=(
+            int(row["ctx_batting_order"]) if row["ctx_batting_order"] is not None else None
+        ),
+        projected_pas=_f("ctx_projected_pa"),
+        wind_carry_cf=_f("wx_wind_carry_cf"),
+        temperature_f=_f("wx_temperature_f"),
+        air_density_relative=_f("wx_air_density_relative"),
         top_contributing_features=contributions,
         model_version=row["model_version"],
     )
@@ -123,6 +142,7 @@ def _picks_today_cached(
     min_prob: float,
     team: str | None,
     sort: str,
+    model_version: str,
     request: Request,
     db: Session,
 ) -> list[PickSummary]:
@@ -135,6 +155,7 @@ def _picks_today_cached(
                 "min_prob": min_prob,
                 "team": team,
                 "sort": sort,
+                "model_version": model_version,
             },
         )
         .mappings()
@@ -143,13 +164,16 @@ def _picks_today_cached(
     return [_row_to_pick(r) for r in rows]
 
 
-_LATEST_DATE_SQL = text("SELECT MAX(game_date) FROM predictions")
+_LATEST_DATE_SQL = text(
+    "SELECT MAX(game_date) FROM predictions WHERE model_version = :model_version"
+)
 
 
 @router.get("/today", response_model=list[PickSummary])
 async def picks_today(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    loaded: Annotated[LoadedModel, Depends(get_model)],
     limit: Annotated[int, Query(ge=1, le=200)] = 20,
     min_prob: Annotated[float, Query(ge=0.0, le=1.0)] = 0.0,
     team: Annotated[str | None, Query(max_length=4)] = None,
@@ -168,20 +192,21 @@ async def picks_today(
     instead of an empty slate; the `game_date` field on each pick makes
     the staleness visible.
     """
-    target_date = datetime.now(UTC).date()
+    target_date = current_mlb_date()
     picks = await _picks_today_cached(
         target_date=target_date,
         limit=limit,
         min_prob=min_prob,
         team=team,
         sort=sort,
+        model_version=loaded.version,
         request=request,
         db=db,
     )
     if picks:
         return picks
 
-    latest = db.execute(_LATEST_DATE_SQL).scalar()
+    latest = db.execute(_LATEST_DATE_SQL, {"model_version": loaded.version}).scalar()
     if latest is None or latest == target_date:
         return picks  # truly empty — no predictions anywhere
     _log.info(
@@ -194,6 +219,7 @@ async def picks_today(
         min_prob=min_prob,
         team=team,
         sort=sort,
+        model_version=loaded.version,
         request=request,
         db=db,
     )

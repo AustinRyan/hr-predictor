@@ -43,7 +43,7 @@ def test_feature_columns_includes_expected_families() -> None:
 
 
 def test_feature_columns_count_reasonable() -> None:
-    # ~120 numeric feature columns expected.
+    # ~118 numeric feature columns expected after rest-day exclusions.
     assert 80 <= len(FEATURE_COLUMNS) <= 130
 
 

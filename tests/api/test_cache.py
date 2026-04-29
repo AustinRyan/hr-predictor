@@ -9,6 +9,8 @@ import pytest
 from redis.exceptions import RedisError
 from sqlalchemy import text
 from src.api.dependencies import _get_session_factory
+from src.core.time import current_mlb_date
+from src.models.artifacts import load_model
 
 
 def _flush_picks_cache() -> None:
@@ -25,7 +27,7 @@ def _flush_picks_cache() -> None:
         pass
 
 
-def _seed_prediction_for_cache_test(game_date: date) -> None:
+def _seed_prediction_for_cache_test(game_date: date, model_version: str) -> None:
     """Seed a single prediction row for cache tests."""
     sf = _get_session_factory()
     with sf() as s:
@@ -79,10 +81,14 @@ def _seed_prediction_for_cache_test(game_date: date) -> None:
                 "INSERT INTO predictions "
                 "(game_pk, batter_id, pitcher_id, game_date, model_version, "
                 " matchup_components, prob_at_least_one_hr, expected_hrs) "
-                "VALUES (997900, 790001, 790100, :d, 'v20260423_173917', "
-                " :mc, 0.15, 0.19) ON CONFLICT DO NOTHING"
+                "VALUES (997900, 790001, 790100, :d, :mv, "
+                " :mc, 0.99, 1.04) "
+                "ON CONFLICT (game_pk, batter_id, model_version) DO UPDATE SET "
+                "game_date = EXCLUDED.game_date, "
+                "prob_at_least_one_hr = EXCLUDED.prob_at_least_one_hr, "
+                "expected_hrs = EXCLUDED.expected_hrs"
             ),
-            {"d": game_date, "mc": '{"starter_calibrated_prob": 0.15}'},
+            {"d": game_date, "mv": model_version, "mc": '{"starter_calibrated_prob": 0.99}'},
         )
         s.commit()
 
@@ -101,9 +107,9 @@ async def test_cache_hit_on_second_identical_call(client) -> None:
     """After a first call populates cache, Redis should have a picks:today key."""
     from src.core.redis_client import get_redis
 
-    today = datetime.now(UTC).date()
+    today = current_mlb_date()
     _flush_picks_cache()
-    _seed_prediction_for_cache_test(today)
+    _seed_prediction_for_cache_test(today, load_model().version)
     try:
         # First call populates cache
         r1 = await client.get("/picks/today?limit=10")
@@ -133,9 +139,9 @@ async def test_cache_keys_differ_for_different_params(client) -> None:
     """Different query parameters should create different cache keys."""
     from src.core.redis_client import get_redis
 
-    today = datetime.now(UTC).date()
+    today = current_mlb_date()
     _flush_picks_cache()
-    _seed_prediction_for_cache_test(today)
+    _seed_prediction_for_cache_test(today, load_model().version)
     try:
         await client.get("/picks/today?limit=10")
         await client.get("/picks/today?limit=5")
@@ -151,8 +157,8 @@ async def test_cache_keys_differ_for_different_params(client) -> None:
 @pytest.mark.integration
 async def test_cache_degrades_gracefully_when_redis_raises(client) -> None:
     """Force get_redis() inside cache.py to raise — endpoint must still 200."""
-    today = datetime.now(UTC).date()
-    _seed_prediction_for_cache_test(today)
+    today = current_mlb_date()
+    _seed_prediction_for_cache_test(today, load_model().version)
 
     def boom(*args, **kwargs):
         raise RedisError("simulated redis down")

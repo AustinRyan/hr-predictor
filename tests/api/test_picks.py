@@ -8,6 +8,17 @@ import pytest
 from sqlalchemy import text
 from src.api.dependencies import _get_session_factory
 from src.core.redis_client import get_redis
+from src.core.time import current_mlb_date
+from src.models.artifacts import load_model
+
+_TEST_GAME_PK = 997001
+_TEST_BATTER_IDS = (700001, 700002, 700003, 700004, 700005)
+_STALE_BATTER_ID = 700099
+_TEST_PITCHER_ID = 700100
+
+
+def _active_model_version() -> str:
+    return load_model().version
 
 
 def _flush_picks_cache() -> None:
@@ -23,13 +34,13 @@ def _flush_picks_cache() -> None:
         pass
 
 
-def _seed_predictions(game_date: date) -> None:
+def _seed_predictions(game_date: date, model_version: str) -> None:
     """Seed 5 prediction rows against the live dev DB."""
     _flush_picks_cache()
     sf = _get_session_factory()
     with sf() as s:
-        # Clean any pre-existing rows for this date
-        s.execute(text("DELETE FROM predictions WHERE game_date = :d"), {"d": game_date})
+        # Clean only this synthetic game; never wipe the real slate date.
+        s.execute(text("DELETE FROM predictions WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         # Park + schedule for FK context
         s.execute(
             text(
@@ -54,10 +65,11 @@ def _seed_predictions(game_date: date) -> None:
                 "INSERT INTO daily_schedule "
                 "(game_pk, game_date, home_team_id, away_team_id, venue_id, "
                 " game_start_utc, status) "
-                "VALUES (997001, :d, 9001, 9002, 99701, :ts, 'Scheduled') "
+                "VALUES (:gp, :d, 9001, 9002, 99701, :ts, 'Scheduled') "
                 "ON CONFLICT DO NOTHING"
             ),
             {
+                "gp": _TEST_GAME_PK,
                 "d": game_date,
                 "ts": datetime(game_date.year, game_date.month, game_date.day, 23, 0, tzinfo=UTC),
             },
@@ -69,7 +81,8 @@ def _seed_predictions(game_date: date) -> None:
             (700003, "Test Batter C"),
             (700004, "Test Batter D"),
             (700005, "Test Batter E"),
-            (700100, "Test Pitcher"),
+            (_STALE_BATTER_ID, "Stale Model Batter"),
+            (_TEST_PITCHER_ID, "Test Pitcher"),
         ]:
             s.execute(
                 text(
@@ -79,22 +92,34 @@ def _seed_predictions(game_date: date) -> None:
                 {"id": pid, "n": name},
             )
         # 5 predictions with descending prob
-        for i, pid in enumerate([700001, 700002, 700003, 700004, 700005]):
+        for i, pid in enumerate(_TEST_BATTER_IDS):
             s.execute(
                 text(
                     "INSERT INTO predictions "
                     "(game_pk, batter_id, pitcher_id, game_date, model_version, "
                     " matchup_components, projected_pas, prob_at_least_one_hr, "
                     " prob_at_least_two_hr, expected_hrs, feature_contributions) "
-                    "VALUES (997001, :b, 700100, :d, 'v20260423_173917', "
-                    " :mc, 4.29, :prob, 0.01, :eh, :fc)"
+                    "VALUES (:gp, :b, :p, :d, :mv, "
+                    " :mc, 4.29, :prob, 0.01, :eh, :fc) "
+                    "ON CONFLICT (game_pk, batter_id, model_version) DO UPDATE SET "
+                    "pitcher_id = EXCLUDED.pitcher_id, "
+                    "game_date = EXCLUDED.game_date, "
+                    "matchup_components = EXCLUDED.matchup_components, "
+                    "projected_pas = EXCLUDED.projected_pas, "
+                    "prob_at_least_one_hr = EXCLUDED.prob_at_least_one_hr, "
+                    "prob_at_least_two_hr = EXCLUDED.prob_at_least_two_hr, "
+                    "expected_hrs = EXCLUDED.expected_hrs, "
+                    "feature_contributions = EXCLUDED.feature_contributions"
                 ),
                 {
+                    "gp": _TEST_GAME_PK,
                     "b": pid,
+                    "p": _TEST_PITCHER_ID,
                     "d": game_date,
+                    "mv": model_version,
                     "mc": '{"starter_raw_prob": 0.2, "starter_calibrated_prob": 0.2}',
-                    "prob": 0.20 - i * 0.03,
-                    "eh": 0.25 - i * 0.03,
+                    "prob": 0.99 - i * 0.01,
+                    "eh": 1.04 - i * 0.01,
                     "fc": (
                         '{"b_barrel_pct_season": 0.05, '
                         '"park_hr_factor_hand": 0.03, '
@@ -103,66 +128,93 @@ def _seed_predictions(game_date: date) -> None:
                     ),
                 },
             )
+        s.execute(
+            text(
+                "INSERT INTO predictions "
+                "(game_pk, batter_id, pitcher_id, game_date, model_version, "
+                " matchup_components, projected_pas, prob_at_least_one_hr, "
+                " prob_at_least_two_hr, expected_hrs, feature_contributions) "
+                "VALUES (:gp, :b, :p, :d, 'v_stale_regression', "
+                " :mc, 4.29, 1.0, 0.50, 1.20, :fc) "
+                "ON CONFLICT (game_pk, batter_id, model_version) DO UPDATE SET "
+                "game_date = EXCLUDED.game_date, "
+                "prob_at_least_one_hr = EXCLUDED.prob_at_least_one_hr"
+            ),
+            {
+                "gp": _TEST_GAME_PK,
+                "b": _STALE_BATTER_ID,
+                "p": _TEST_PITCHER_ID,
+                "d": game_date,
+                "mc": '{"starter_raw_prob": 1.0, "starter_calibrated_prob": 1.0}',
+                "fc": '{"stale_model_feature": 1.0}',
+            },
+        )
         s.commit()
+    _flush_picks_cache()
 
 
-def _cleanup_predictions(game_date: date) -> None:
+def _cleanup_predictions() -> None:
     sf = _get_session_factory()
     with sf() as s:
-        s.execute(text("DELETE FROM predictions WHERE game_date = :d"), {"d": game_date})
-        s.execute(text("DELETE FROM daily_schedule WHERE game_pk = 997001"))
+        s.execute(text("DELETE FROM predictions WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
+        s.execute(text("DELETE FROM daily_schedule WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         s.commit()
+    _flush_picks_cache()
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_picks_today_returns_sorted_by_prob(client) -> None:
-    today = datetime.now(UTC).date()
-    _seed_predictions(today)
+    today = current_mlb_date()
+    model_version = _active_model_version()
+    _seed_predictions(today, model_version)
     try:
         r = await client.get("/picks/today")
         assert r.status_code == 200, r.text
         body = r.json()
         assert len(body) >= 5
-        # Top-5 we seeded are the highest-prob ones (0.20 down to 0.08)
-        top5 = [row for row in body if row["batter_id"] in (700001, 700002, 700003, 700004, 700005)]
+        # Top-5 we seeded are intentionally high-prob rows.
+        top5 = [row for row in body if row["batter_id"] in _TEST_BATTER_IDS]
         assert len(top5) == 5
         probs = [row["prob_at_least_one_hr"] for row in top5]
         assert probs == sorted(probs, reverse=True)
+        assert _STALE_BATTER_ID not in {row["batter_id"] for row in body}
+        assert {row["model_version"] for row in top5} == {model_version}
         # Enrichment
         first = top5[0]
         assert first["batter_name"] == "Test Batter A"
         assert first["pitcher_name"] == "Test Pitcher"
         assert first["pitcher_throws"] == "R"
         assert first["park_name"] == "Test Park"
-        assert first["model_version"] == "v20260423_173917"
-        assert len(first["top_contributing_features"]) == 3
+        assert len(first["top_contributing_features"]) >= 3
+        assert "pitcher_hr_per_9_season" in first
+        assert "wind_carry_cf" in first
     finally:
-        _cleanup_predictions(today)
+        _cleanup_predictions()
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_picks_today_respects_limit(client) -> None:
-    today = datetime.now(UTC).date()
-    _seed_predictions(today)
+    today = current_mlb_date()
+    _seed_predictions(today, _active_model_version())
     try:
         r = await client.get("/picks/today?limit=2")
         assert r.status_code == 200
         # Seeded 5; limit 2 → at most 2 for OUR seeds (other real rows may be
         # present; filter by id)
         body = r.json()
-        our_rows = [b for b in body if b["batter_id"] in (700001, 700002, 700003, 700004, 700005)]
+        our_rows = [b for b in body if b["batter_id"] in _TEST_BATTER_IDS]
         assert len(our_rows) <= 2
     finally:
-        _cleanup_predictions(today)
+        _cleanup_predictions()
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_picks_today_min_prob_filter(client) -> None:
-    today = datetime.now(UTC).date()
-    _seed_predictions(today)
+    today = current_mlb_date()
+    _seed_predictions(today, _active_model_version())
     try:
         r = await client.get("/picks/today?min_prob=0.15")
         assert r.status_code == 200
@@ -170,23 +222,23 @@ async def test_picks_today_min_prob_filter(client) -> None:
         for row in body:
             assert row["prob_at_least_one_hr"] >= 0.15
     finally:
-        _cleanup_predictions(today)
+        _cleanup_predictions()
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_picks_today_team_filter(client) -> None:
-    today = datetime.now(UTC).date()
-    _seed_predictions(today)
+    today = current_mlb_date()
+    _seed_predictions(today, _active_model_version())
     try:
         r = await client.get("/picks/today?team=TST")
         assert r.status_code == 200
         body = r.json()
         # Our seeded game has home team TST; should return our 5 seeds at minimum.
-        our_rows = [b for b in body if b["batter_id"] in (700001, 700002, 700003, 700004, 700005)]
+        our_rows = [b for b in body if b["batter_id"] in _TEST_BATTER_IDS]
         assert len(our_rows) == 5
     finally:
-        _cleanup_predictions(today)
+        _cleanup_predictions()
 
 
 @pytest.mark.asyncio

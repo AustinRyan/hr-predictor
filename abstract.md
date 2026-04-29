@@ -1,6 +1,6 @@
 # HR Predictor — Abstract
 
-**Updated:** 2026-04-23 — end of Phase 7
+**Updated:** 2026-04-28 — backend scoring hardening pass
 
 ## Current phase
 **Phase 8 — LangGraph explanation agent (optional)** — not started.
@@ -141,6 +141,9 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **Phase 4 SHAP plot generation is broken** on XGBoost 2.x (`feature_names_in_` setter). Pin `shap<0.45` or adapt to raw `Booster`. Low priority.
 - **Per-PA model ranking capacity is weak** (test AUC 0.68). Carried forward from Phase 4, surfaced in the Phase 5 sanity check — top-5 P(≥1 HR) is not dominated by elite sluggers. Resolving requires better features / ensemble / ranking-optimized objective; deferred to a post-Phase-6 modeling pass.
 - **`sanity_runner.py` relies on row-order alignment** between `time_based_split`'s `X` and a re-query of `matchup_features` with the same filters. Stable in practice but not formally guaranteed. A future small refactor can plumb `(game_pk, batter_id, pitcher_id)` through `FeatureFrame.metadata` to make alignment explicit.
+- **Per-game predictions are still starter-matchup only.** The composition layer can accept a bullpen term, but current inference writes `bullpen_* = null`, so `P(≥1 HR)` equals starter calibrated probability. True full-game HR probability needs either a batter-vs-bullpen component or a retrained batter-game target.
+- **Ensemble explanations are XGBoost-component SHAP only.** Production probability averages XGBoost + LightGBM, but `feature_contributions` still comes from XGBoost TreeSHAP/native `pred_contribs`. Treat explanations as directional drivers, not exact ensemble attribution.
+- **2026-04-28 hardening pass:** `load_model()` now honors `registry/PRODUCTION`; inference uses the artifact feature schema; slate defaults use MLB Eastern date; API prediction reads filter to loaded model version.
 
 ## Next action
 Controller applies `phase-7-complete` tag after review. Phase 8 (`phases/phase8/` — if still in scope) covers an optional LangGraph explanation agent.

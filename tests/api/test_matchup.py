@@ -7,6 +7,12 @@ from datetime import UTC, date, datetime
 import pytest
 from sqlalchemy import text
 from src.api.dependencies import _get_session_factory
+from src.core.time import current_mlb_date
+from src.models.artifacts import load_model
+
+
+def _active_model_version() -> str:
+    return load_model().version
 
 
 def _seed_full_matchup(game_pk: int, batter_id: int, pitcher_id: int, game_date: date) -> None:
@@ -76,7 +82,13 @@ def _seed_full_matchup(game_pk: int, batter_id: int, pitcher_id: int, game_date:
         s.commit()
 
 
-def _seed_prediction(game_pk: int, batter_id: int, pitcher_id: int, game_date: date) -> None:
+def _seed_prediction(
+    game_pk: int,
+    batter_id: int,
+    pitcher_id: int,
+    game_date: date,
+    model_version: str,
+) -> None:
     sf = _get_session_factory()
     with sf() as s:
         s.execute(
@@ -84,17 +96,48 @@ def _seed_prediction(game_pk: int, batter_id: int, pitcher_id: int, game_date: d
                 "INSERT INTO predictions "
                 "(game_pk, batter_id, pitcher_id, game_date, model_version, "
                 " matchup_components, projected_pas, prob_at_least_one_hr, "
-                " prob_at_least_two_hr, expected_hrs, feature_contributions) "
-                "VALUES (:gp, :b, :p, :d, 'v20260423_173917', "
-                " :mc, 4.4, 0.22, 0.018, 0.27, :fc) ON CONFLICT DO NOTHING"
+                " prob_at_least_two_hr, expected_hrs, feature_contributions, generated_at) "
+                "VALUES (:gp, :b, :p, :d, :mv, "
+                " :mc, 4.4, 0.22, 0.018, 0.27, :fc, NOW()) "
+                "ON CONFLICT (game_pk, batter_id, model_version) DO UPDATE SET "
+                "game_date = EXCLUDED.game_date, "
+                "prob_at_least_one_hr = EXCLUDED.prob_at_least_one_hr, "
+                "matchup_components = EXCLUDED.matchup_components, "
+                "feature_contributions = EXCLUDED.feature_contributions, "
+                "generated_at = EXCLUDED.generated_at"
             ),
             {
                 "gp": game_pk,
                 "b": batter_id,
                 "p": pitcher_id,
                 "d": game_date,
+                "mv": model_version,
                 "mc": '{"starter_raw_prob": 0.24, "starter_calibrated_prob": 0.22, "bullpen_raw_prob": null, "bullpen_calibrated_prob": null}',
                 "fc": '{"b_barrel_pct_season": 0.05, "park_hr_factor_hand": 0.04, "wx_wind_carry_cf": 0.03, "b_p90_ev_season": 0.02, "p_tto_penalty": 0.01, "ctx_same_hand": -0.01, "b_pulled_fb_pct_season": 0.01, "p_hr_per_9_season": 0.008, "b_hr_per_pa_season": 0.007, "ctx_batting_order": 0.005, "ctx_projected_pa": 0.004}',
+            },
+        )
+        s.execute(
+            text(
+                "INSERT INTO predictions "
+                "(game_pk, batter_id, pitcher_id, game_date, model_version, "
+                " matchup_components, projected_pas, prob_at_least_one_hr, "
+                " prob_at_least_two_hr, expected_hrs, feature_contributions, generated_at) "
+                "VALUES (:gp, :b, :p, :d, 'v_stale_regression', "
+                " :mc, 4.4, 0.99, 0.50, 1.10, :fc, NOW() + INTERVAL '1 second') "
+                "ON CONFLICT (game_pk, batter_id, model_version) DO UPDATE SET "
+                "game_date = EXCLUDED.game_date, "
+                "prob_at_least_one_hr = EXCLUDED.prob_at_least_one_hr, "
+                "matchup_components = EXCLUDED.matchup_components, "
+                "feature_contributions = EXCLUDED.feature_contributions, "
+                "generated_at = EXCLUDED.generated_at"
+            ),
+            {
+                "gp": game_pk,
+                "b": batter_id,
+                "p": pitcher_id,
+                "d": game_date,
+                "mc": '{"starter_raw_prob": 0.99, "starter_calibrated_prob": 0.99}',
+                "fc": '{"stale_model_feature": 1.0}',
             },
         )
         s.commit()
@@ -113,9 +156,10 @@ def _cleanup(game_pk: int, batter_id: int) -> None:
 @pytest.mark.integration
 async def test_matchup_detail_full(client) -> None:
     gp, b, p = 998001, 720001, 720100
-    today = datetime.now(UTC).date()
+    today = current_mlb_date()
+    model_version = _active_model_version()
     _seed_full_matchup(gp, b, p, today)
-    _seed_prediction(gp, b, p, today)
+    _seed_prediction(gp, b, p, today, model_version)
     try:
         r = await client.get(f"/matchup/{gp}/{b}")
         assert r.status_code == 200, r.text
@@ -132,6 +176,7 @@ async def test_matchup_detail_full(client) -> None:
         assert body["prediction"] is not None
         assert body["prediction"]["prob_at_least_one_hr"] == 0.22
         assert body["prediction"]["starter_calibrated_prob"] == 0.22
+        assert body["prediction"]["model_version"] == model_version
         assert len(body["prediction"]["top_contributing_features"]) == 10
         # Order: top feature has largest absolute contribution
         first = body["prediction"]["top_contributing_features"][0]
@@ -154,7 +199,7 @@ async def test_matchup_detail_404(client) -> None:
 async def test_matchup_detail_no_prediction(client) -> None:
     """Matchup row exists, no prediction yet → prediction field is null."""
     gp, b, p = 998002, 720002, 720101
-    today = datetime.now(UTC).date()
+    today = current_mlb_date()
     _seed_full_matchup(gp, b, p, today)
     try:
         r = await client.get(f"/matchup/{gp}/{b}")

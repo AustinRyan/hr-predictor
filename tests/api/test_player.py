@@ -7,6 +7,12 @@ from datetime import UTC, date, datetime
 import pytest
 from sqlalchemy import text
 from src.api.dependencies import _get_session_factory
+from src.core.time import current_mlb_date
+from src.models.artifacts import load_model
+
+
+def _active_model_version() -> str:
+    return load_model().version
 
 
 def _seed_player(
@@ -51,7 +57,7 @@ def _seed_rolling(mlbam_id: int, as_of: date) -> None:
         s.commit()
 
 
-def _seed_today_prediction(mlbam_id: int, today: date) -> None:
+def _seed_today_prediction(mlbam_id: int, today: date, model_version: str) -> None:
     sf = _get_session_factory()
     with sf() as s:
         s.execute(
@@ -82,13 +88,35 @@ def _seed_today_prediction(mlbam_id: int, today: date) -> None:
                 "INSERT INTO predictions "
                 "(game_pk, batter_id, pitcher_id, game_date, model_version, "
                 " matchup_components, projected_pas, prob_at_least_one_hr, expected_hrs) "
-                "VALUES (997110, :mlbam, 710200, :d, 'v20260423_173917', "
-                " :mc, 4.5, 0.18, 0.22) ON CONFLICT DO NOTHING"
+                "VALUES (997110, :mlbam, 710200, :d, :mv, "
+                " :mc, 4.5, 0.18, 0.22) "
+                "ON CONFLICT (game_pk, batter_id, model_version) DO UPDATE SET "
+                "game_date = EXCLUDED.game_date, "
+                "prob_at_least_one_hr = EXCLUDED.prob_at_least_one_hr, "
+                "expected_hrs = EXCLUDED.expected_hrs"
             ),
             {
                 "mlbam": mlbam_id,
                 "d": today,
+                "mv": model_version,
                 "mc": '{"starter_calibrated_prob": 0.18}',
+            },
+        )
+        s.execute(
+            text(
+                "INSERT INTO predictions "
+                "(game_pk, batter_id, pitcher_id, game_date, model_version, "
+                " matchup_components, projected_pas, prob_at_least_one_hr, expected_hrs) "
+                "VALUES (997110, :mlbam, 710200, :d, 'v_stale_regression', "
+                " :mc, 4.5, 0.99, 1.10) "
+                "ON CONFLICT (game_pk, batter_id, model_version) DO UPDATE SET "
+                "game_date = EXCLUDED.game_date, "
+                "prob_at_least_one_hr = EXCLUDED.prob_at_least_one_hr"
+            ),
+            {
+                "mlbam": mlbam_id,
+                "d": today,
+                "mc": '{"starter_calibrated_prob": 0.99}',
             },
         )
         s.commit()
@@ -119,11 +147,12 @@ def _cleanup(mlbam_id: int) -> None:
 @pytest.mark.integration
 async def test_player_detail_happy_path(client) -> None:
     mlbam = 710001
-    today = datetime.now(UTC).date()
+    today = current_mlb_date()
+    model_version = _active_model_version()
     _flush_player_cache()
     _seed_player(mlbam)
     _seed_rolling(mlbam, today)
-    _seed_today_prediction(mlbam, today)
+    _seed_today_prediction(mlbam, today, model_version)
     try:
         r = await client.get(f"/player/{mlbam}")
         assert r.status_code == 200, r.text
@@ -135,7 +164,7 @@ async def test_player_detail_happy_path(client) -> None:
         assert body["rolling"]["b_p90_ev_30d"] == 108.5
         assert body["today_prediction"] is not None
         assert body["today_prediction"]["prob_at_least_one_hr"] == 0.18
-        assert body["today_prediction"]["model_version"] == "v20260423_173917"
+        assert body["today_prediction"]["model_version"] == model_version
     finally:
         _cleanup(mlbam)
 

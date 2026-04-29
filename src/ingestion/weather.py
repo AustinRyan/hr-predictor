@@ -31,6 +31,7 @@ from sqlalchemy.orm import sessionmaker
 
 from src.core.db import get_engine
 from src.core.models import DailySchedule, Park, WeatherArchive, WeatherForecast
+from src.core.time import current_mlb_date
 from src.features.weather_physics import (
     air_density_relative,
     apply_roof_gating,
@@ -139,12 +140,16 @@ def fetch_weather_forecast(
     }
 
 
-def persist_weather_for_today(*, engine: Engine | None = None) -> int:
-    """For every non-dome game in today's daily_schedule, fetch + upsert a forecast."""
+def persist_weather_for_today(
+    *,
+    target_date: date | None = None,
+    engine: Engine | None = None,
+) -> int:
+    """For every non-dome game on target/current date, fetch + upsert a forecast."""
     engine = engine or get_engine()
     session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
-    today = datetime.now(UTC).date()
+    day = target_date or current_mlb_date()
     with session_factory() as session:
         stmt = (
             select(
@@ -156,7 +161,7 @@ def persist_weather_for_today(*, engine: Engine | None = None) -> int:
                 Park.longitude,
             )
             .join(Park, Park.park_id == DailySchedule.venue_id)
-            .where(DailySchedule.game_date == today)
+            .where(DailySchedule.game_date == day)
         )
         todays = session.execute(stmt).all()
 

@@ -33,15 +33,17 @@ All external responses are parsed through Pydantic wire models
 - `mlb_statsapi.persist_daily_schedule(target_date, engine=...)` —
   one-date orchestrator: hits schedule + boxscore + feed/live per
   game; upserts `daily_schedule` + `projected_lineups`.
-- `weather.persist_weather_for_today(engine=...)` — one Open-Meteo
-  call per non-dome game in today's `daily_schedule`; skips dome
-  parks entirely (`roof_type = 'dome'`).
+- `weather.persist_weather_for_today(target_date=None, engine=...)` —
+  one Open-Meteo call per non-dome game in the target/current MLB-date
+  `daily_schedule`; skips dome parks entirely (`roof_type = 'dome'`).
 - `statcast_incremental.run_incremental_statcast(today=None, engine=...)`
   — re-pulls the last 7 days via Phase 1's `backfill_statcast` loader
   with `resume=False`.
 - `daily_runner.run_daily(target_date=..., skip_statcast=..., skip_weather=...)`
   — CLI orchestrator. Runs park factors (if stale), schedule, weather,
-  incremental Statcast. Collects per-step failures without bailing.
+  incremental Statcast. The same `target_date` is threaded into schedule
+  and weather so manual/date-specific refreshes do not accidentally mix
+  slate days. Collects per-step failures without bailing.
   Runs as `python -m src.ingestion.daily_runner [--date YYYY-MM-DD]
   [--skip-statcast] [--skip-weather]`.
 - `scheduler.start_scheduler()` — blocking APScheduler process with a
@@ -109,6 +111,9 @@ from src.ingestion.scheduler import build_scheduler, start_scheduler
   `persist_weather_for_today` call writes a new row per game (by design:
   preserves forecast-revision history). Downstream features should
   read the latest `fetched_at` per `(park_id, forecast_for_utc)`.
+- **"Today" means MLB Eastern date.** `daily_runner` and weather default
+  through `src.core.time.current_mlb_date()` to avoid UTC rollovers
+  creating a different schedule/weather date near midnight.
 - **Retractable parks are queried for weather.** `daily_schedule.roof_status`
   disambiguates at feature-compute time.
 - **Park factors refresh is NOT daily.** `daily_runner` only calls

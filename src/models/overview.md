@@ -10,7 +10,7 @@ Scope boundary: **no API** (Phase 6), **no daily inference pipeline** (Phase 6+)
 - **`train.py`** — orchestrator. `train_baseline(config: TrainingConfig | None = None, ...) -> TrainingResult` runs the full pipeline: load → time-based split → fit XGBoost → predict → compute metrics → render plots → persist artifact. CLI wrapper `python -m src.models.train` uses defaults.
 - **`data.py`** — feature loading + split. `load_training_data(start_date, end_date, *, engine=None) -> FeatureFrame` pulls `matchup_features` WHERE `is_historical=True AND hr_on_pa IS NOT NULL`. `time_based_split(engine=None) -> TrainValTest` materializes the three fixed-date frames. `FEATURE_COLUMNS: list[str]` is the single source of truth for column order.
 - **`eval.py`** — pure-function metrics + matplotlib plotters. `log_loss`, `brier_score`, `expected_calibration_error`, `reliability_curve`, `precision_at_top_k` (per-day semantics), `auc`, `naive_baseline_log_loss`, plus `plot_reliability`, `plot_feature_importance`, `plot_shap_summary`, `plot_prediction_histogram`.
-- **`artifacts.py`** — versioned persistence. `save_model(...) -> Path`, `load_model(version=None) -> LoadedModel`, `list_versions() -> list[ModelVersion]`, `promote_to_production(version)`, `compute_data_hash(X, y)`. Version IDs are `v{YYYYMMDD_HHMMSS}` (UTC). Production pointer is a plain-text file `registry/PRODUCTION` (not a symlink — Windows friendly).
+- **`artifacts.py`** — versioned persistence. `save_model(...) -> Path`, `load_model(version=None) -> LoadedModel`, `list_versions() -> list[ModelVersion]`, `promote_to_production(version)`, `compute_data_hash(X, y)`. Version IDs are `v{YYYYMMDD_HHMMSS}` (UTC). `load_model()` honors the plain-text `registry/PRODUCTION` pointer first, falling back to newest directory only when no pointer exists.
 - **`calibrate.py`** — isotonic post-hoc calibrator. `fit_calibrator(val_probs, val_labels) -> IsotonicRegression`, `apply_calibrator(cal, raw_probs) -> ndarray`, `save_calibrator(cal, version) -> Path`, `load_calibrator(version) -> IsotonicRegression`. Calibrator lives at `src/models/registry/v{version}/calibrator.joblib` — co-located with the model to prevent version-mixing bugs.
 - **`per_game_hr.py`** — per-game composition of per-matchup probabilities. `per_game_hr_distribution(GameMatchupInputs) -> GameHRDistribution` composes the starter-matchup probability (and optionally a bullpen-matchup probability) into a game-level distribution via the independent-matchups formula. Phase 3's label `hr_on_pa` is per-(batter, pitcher, game), so the model's calibrated output is already a per-matchup game-level probability — no PA-level compounding is applied. Replaces the original `pa_sequence.py` (see `phases/phase5/NOTES.md` "Rollup semantic bug" for the fix narrative).
 - **`rollup.py`** — exact Poisson-binomial PMF + per-game distribution. `poisson_binomial_pmf(probs) -> list[float]` via direct convolution (O(n²), near-instant for the small inputs we feed it); `per_game_probability(probs) -> GameHRDistribution` exposes `prob_at_least_one`, `prob_at_least_two`, `prob_at_least_three`, `expected_hrs`, and `pmf`. The math is unchanged from the original Phase 5 implementation — it's correct for combining any independent-event probabilities; `per_game_hr.py` now feeds it 1–2 per-matchup probabilities instead of the originally-incorrect 4 per-PA copies.
@@ -29,12 +29,12 @@ from src.models.per_game_hr import GameMatchupInputs, per_game_hr_distribution
 from src.models.rollup import per_game_probability, poisson_binomial_pmf, GameHRDistribution
 ```
 
-`LoadedModel` exposes `.model` (XGBoost Booster), `.feature_schema` (ordered list of 120 feature names), `.metadata` (git_sha, data_hash, config, training_range), `.metrics`.
+`LoadedModel` exposes `.model` (XGBoost Booster), `.feature_schema` (ordered list of 118 production feature names), `.training_metadata` (git_sha, data_hash, config, training_range), `.metrics`.
 
 **Standard inference pipeline** (Phase 6 onward):
 
 ```python
-loaded = load_model()                          # latest or version=...
+loaded = load_model()                          # PRODUCTION or version=...
 cal = load_calibrator(loaded.version)          # co-located with model
 dmat = xgboost.DMatrix(X.values, feature_names=loaded.feature_schema)
 raw = loaded.model.predict(dmat)
@@ -76,7 +76,9 @@ src/models/registry/v{YYYYMMDD_HHMMSS}/
 
 ## Gotchas
 
-- **`FEATURE_COLUMNS` is enumerated at module-load time** from `MatchupFeature`. Excluded columns: `game_date`, `game_pk`, `batter_id`, `pitcher_id` (keys), `hr_on_pa` (label), `is_historical` (flag), `built_at` (audit), and two string columns (`p_primary_pitch`, `ctx_day_night`). Add a new numeric feature column to the ORM and it's automatically in `FEATURE_COLUMNS` — no manual update. Currently 120 features.
+- **`FEATURE_COLUMNS` is enumerated at module-load time** from `MatchupFeature`. Excluded columns: `game_date`, `game_pk`, `batter_id`, `pitcher_id` (keys), `hr_on_pa` (label), `is_historical` (flag), `built_at` (audit), two string columns (`p_primary_pitch`, `ctx_day_night`), and the two leaky rest-day diagnostics. Add a new numeric feature column to the ORM and it's automatically in `FEATURE_COLUMNS` for future training runs — no manual update. Currently 118 features.
+- **Inference uses the artifact schema, not live `FEATURE_COLUMNS`.** `generate_predictions_for_date` validates every saved feature name exists on `matchup_features`, then selects/builds the frame in exactly that artifact order. This prevents a new ORM feature column from silently reshaping an older production model.
+- **Production pointer is authoritative.** `load_model()` now loads `registry/PRODUCTION` when present; newest-directory fallback exists only for fresh local registries/tests.
 - **NaN handling is native XGBoost**, not imputed. Bat-tracking (`b_avg_bat_speed`, `b_squared_up_pct`, `b_blast_rate`) is NaN pre-2024; weather is NaN at exhibition venues; retractable-roof context can be NaN. Don't re-enter imputation logic — XGBoost learns a default split direction per feature.
 - **`precision_at_top_k` is "per-day":** for each `game_date` in the eval set, rank preds, take top K (default 20), count hits. Average across days. K=20 ≈ "a slate of 20 prop bets" — tunable via `TrainingConfig.top_k_per_day`.
 - **Naive baseline** is a constant equal to `mean(y_train)` (train-set HR rate, currently 0.0465). `log_loss(y_any, naive)` is the floor every model must beat by ≥ 5 % relative.

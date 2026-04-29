@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from src.models.artifacts import save_model
 from src.models.calibrate import fit_calibrator, save_calibrator
 from src.models.data import FEATURE_COLUMNS
-from src.models.inference import generate_predictions_for_date
+from src.models.inference import _validated_feature_schema, generate_predictions_for_date
 
 
 def _train_tiny_model_and_calibrator(tmp_registry: Path) -> tuple[str, xgboost.Booster]:
@@ -53,6 +53,17 @@ def _train_tiny_model_and_calibrator(tmp_registry: Path) -> tuple[str, xgboost.B
 @pytest.fixture()
 def tmp_registry(tmp_path: Path) -> Path:
     return tmp_path / "registry"
+
+
+def test_validated_feature_schema_preserves_artifact_order() -> None:
+    schema = ["park_hr_factor_hand", "b_barrel_pct_season", "ctx_projected_pa"]
+
+    assert _validated_feature_schema(schema) == schema
+
+
+def test_validated_feature_schema_rejects_unknown_columns() -> None:
+    with pytest.raises(ValueError, match="missing_model_feature"):
+        _validated_feature_schema(["b_barrel_pct_season", "missing_model_feature"])
 
 
 @pytest.mark.integration

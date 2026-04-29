@@ -63,7 +63,10 @@ profile, park, weather, and context. Reads Phase 1 + Phase 2 tables; writes
 - `build_features_for_historical(start_date, end_date, engine=...)` — iterates
   day-by-day; for each day, runs ONE composed CTE query across all games that
   day (day-batched optimization from Task 12B; ~8× faster than per-game loops).
-- `build_features_for_today(engine=...)` — wraps historical for `CURRENT_DATE`.
+- `build_features_for_date(target_date, engine=...)` — builds all rows for one
+  explicit target date; used by admin refresh and date-specific scripts.
+- `build_features_for_today(engine=...)` — wrapper for the current MLB slate date
+  in America/New_York.
 
 ## Public interface
 
@@ -71,6 +74,7 @@ profile, park, weather, and context. Reads Phase 1 + Phase 2 tables; writes
 from src.features.builder import (
     build_features_for_game,
     build_features_for_historical,
+    build_features_for_date,
     build_features_for_today,
 )
 from src.features.weather_physics import (

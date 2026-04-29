@@ -1,10 +1,11 @@
 # api
 
 ## Purpose
-FastAPI backend serving HR probability predictions from the Phase 4
-model + Phase 5 calibrator. Reads from `predictions` table (populated
-by `src/models/inference.py`). Redis caches read endpoints with
-model-version-aware keys.
+FastAPI backend serving HR probability predictions from the promoted
+model + co-located calibrator. Reads from `predictions` table
+(populated by `src/models/inference.py`) and filters prediction reads
+to the loaded production model version. Redis caches read endpoints
+with model-version-aware keys.
 
 ## Usage
 
@@ -16,7 +17,7 @@ uv run uvicorn src.api.main:app --reload
 uv run python -m src.models.inference
 
 # With explicit date / version
-uv run python -m src.models.inference --date 2026-04-23 --model-version v20260423_173917
+uv run python -m src.models.inference --date 2026-04-28 --model-version v20260423_231941
 ```
 
 ## Modules
@@ -43,7 +44,7 @@ $ curl -s http://127.0.0.1:8765/health
   "status": "ok",
   "postgres": "ok",
   "redis": "ok",
-  "model_version": "v20260423_173917"
+  "model_version": "v20260423_231941"
 }
 ```
 
@@ -74,12 +75,18 @@ $ curl -s 'http://127.0.0.1:8765/picks/today?limit=5'
     "pitcher_throws": null,
     "prob_at_least_one_hr": 0.1025,
     "expected_hrs": 0.1025,
+    "pitcher_hr_per_9_season": 1.12,
+    "pitcher_barrel_pct_allowed_season": 0.08,
+    "batting_order": 2,
+    "projected_pas": 4.5,
+    "wind_carry_cf": 2.1,
+    "temperature_f": 72,
     "top_contributing_features": [
-      {"name": "ctx_pitcher_days_rest", "contribution": 0.362},
-      {"name": "b_xiso_season",         "contribution": 0.135},
-      {"name": "ctx_batting_order",     "contribution": 0.095}
+      {"name": "b_p90_ev_30d",          "contribution": 0.086},
+      {"name": "p_ff_velo_avg",         "contribution": 0.044},
+      {"name": "park_hr_factor_hand",   "contribution": 0.031}
     ],
-    "model_version": "v20260423_173917"
+    "model_version": "v20260423_231941"
   },
   ...
 ]
@@ -100,7 +107,7 @@ $ curl -s http://127.0.0.1:8765/player/660271
     "prob_at_least_one_hr": 0.1025,
     "expected_hrs": 0.1025,
     "projected_pas": 4.6,
-    "model_version": "v20260423_173917"
+    "model_version": "v20260423_231941"
   }
 }
 ```
@@ -139,10 +146,10 @@ Production model metadata + rolling live performance.
 $ curl -s http://127.0.0.1:8765/model/metrics
 {
   "training_metadata": {
-    "model_version": "v20260423_173917",
+    "model_version": "v20260423_231941",
     "git_sha": "...", "data_hash": "...",
     "training_range": ["2021-04-01", "2026-04-21"],
-    "num_features": 120,
+    "num_features": 118,
     "config": {...}
   },
   "training_metrics": {
@@ -181,6 +188,9 @@ Consistent `{error: str, detail?: str}` body:
 
 ## Gotchas
 - Model loaded once at app startup; 503 if unavailable.
+- `/picks/today`, `/player/{id}`, and `/matchup/*` only expose rows for
+  the model version loaded into app state. Historical/stale prediction
+  versions can remain in the DB without leaking into current responses.
 - Cache keys include the current production model version.
 - Redis failures degrade gracefully.
 - `/health` returns 503 (not 200) when Postgres or Redis is down.

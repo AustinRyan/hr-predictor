@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -11,13 +11,15 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from src.api.cache import cached
-from src.api.dependencies import get_db
+from src.api.dependencies import get_db, get_model
 from src.api.schemas.player import (
     PlayerDetail,
     PlayerProfile,
     PlayerRollingStats,
     PlayerTodayPrediction,
 )
+from src.core.time import current_mlb_date
+from src.models.artifacts import LoadedModel
 
 _log = logging.getLogger(__name__)
 
@@ -47,7 +49,9 @@ _TODAY_PRED_SQL = text("""
     SELECT game_pk, pitcher_id, prob_at_least_one_hr,
            expected_hrs, projected_pas, model_version
     FROM predictions
-    WHERE batter_id = :mlbam_id AND game_date = :today
+    WHERE batter_id = :mlbam_id
+      AND game_date = :today
+      AND model_version = :model_version
     ORDER BY prob_at_least_one_hr DESC
     LIMIT 1
     """)
@@ -61,6 +65,7 @@ _TODAY_PRED_SQL = text("""
 async def _player_detail_cached(
     mlbam_id: int,
     today: date,
+    model_version: str,
     db: Session,
     request: Request,  # for cache-key model-version namespacing
 ) -> PlayerDetail:
@@ -80,7 +85,12 @@ async def _player_detail_cached(
         rolling = PlayerRollingStats(**dict(rolling_row))
 
     today_row = (
-        db.execute(_TODAY_PRED_SQL, {"mlbam_id": mlbam_id, "today": today}).mappings().first()
+        db.execute(
+            _TODAY_PRED_SQL,
+            {"mlbam_id": mlbam_id, "today": today, "model_version": model_version},
+        )
+        .mappings()
+        .first()
     )
     today_prediction: PlayerTodayPrediction | None = (
         PlayerTodayPrediction(**dict(today_row)) if today_row else None
@@ -98,7 +108,14 @@ async def player_detail(
     mlbam_id: int,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    loaded: Annotated[LoadedModel, Depends(get_model)],
 ) -> PlayerDetail:
     """Return player profile + recent rolling features + today's prediction."""
-    today = datetime.now(UTC).date()
-    return await _player_detail_cached(mlbam_id=mlbam_id, today=today, db=db, request=request)
+    today = current_mlb_date()
+    return await _player_detail_cached(
+        mlbam_id=mlbam_id,
+        today=today,
+        model_version=loaded.version,
+        db=db,
+        request=request,
+    )

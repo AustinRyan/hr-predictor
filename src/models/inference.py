@@ -30,15 +30,26 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from src.core.db import get_engine
-from src.core.models import Prediction
+from src.core.models import MatchupFeature, Prediction
+from src.core.time import current_mlb_date
 from src.models.artifacts import load_model
 from src.models.calibrate import apply_calibrator, load_calibrator
-from src.models.data import FEATURE_COLUMNS
 from src.models.per_game_hr import GameMatchupInputs, per_game_hr_distribution
 
 _log = logging.getLogger(__name__)
 
 _SHAP_TOP_K = 10
+
+
+def _validated_feature_schema(feature_schema: list[str]) -> list[str]:
+    """Return artifact feature schema after checking every column exists."""
+    valid_columns = {c.name for c in MatchupFeature.__table__.columns}
+    missing = [c for c in feature_schema if c not in valid_columns]
+    if missing:
+        raise ValueError(
+            f"model feature schema has columns absent from matchup_features: {missing}"
+        )
+    return list(feature_schema)
 
 
 def generate_predictions_for_date(
@@ -89,7 +100,8 @@ def generate_predictions_for_date(
     session_factory = sessionmaker(bind=engine, future=True, expire_on_commit=False)
 
     with session_factory() as s:
-        feat_cols_sql = ", ".join(f"mf.{c}" for c in FEATURE_COLUMNS)
+        feature_schema = _validated_feature_schema(loaded.feature_schema)
+        feat_cols_sql = ", ".join(f"mf.{c}" for c in feature_schema)
         rows = (
             s.execute(
                 text(f"""
@@ -122,12 +134,13 @@ def generate_predictions_for_date(
         extra={"date": target_date.isoformat(), "rows": len(rows)},
     )
 
-    # Build feature DataFrame in the same column order as FEATURE_COLUMNS.
+    # Build feature DataFrame in the exact order saved with the model artifact.
+    feature_schema = _validated_feature_schema(loaded.feature_schema)
     feat_df = pd.DataFrame(
-        [{c: r[c] for c in FEATURE_COLUMNS} for r in rows],
-        columns=FEATURE_COLUMNS,
+        [{c: r[c] for c in feature_schema} for r in rows],
+        columns=feature_schema,
     )
-    dmat = xgboost.DMatrix(feat_df.values, feature_names=loaded.feature_schema)
+    dmat = xgboost.DMatrix(feat_df.values, feature_names=feature_schema)
     raw_xgb = loaded.model.predict(dmat)
     if lgbm_booster is not None:
         raw_lgb = lgbm_booster.predict(feat_df, num_iteration=lgbm_booster.best_iteration)
@@ -180,7 +193,7 @@ def generate_predictions_for_date(
             row_shap = shap_values[i]
             idx_sorted = np.argsort(-np.abs(row_shap))[:_SHAP_TOP_K]
             for idx in idx_sorted:
-                contributions[FEATURE_COLUMNS[int(idx)]] = float(row_shap[int(idx)])
+                contributions[feature_schema[int(idx)]] = float(row_shap[int(idx)])
 
         to_write.append(
             {
@@ -244,12 +257,12 @@ def main() -> int:  # pragma: no cover
         "--date",
         type=lambda s: datetime.strptime(s, "%Y-%m-%d").date(),
         default=None,
-        help="Target game date (default: today UTC)",
+        help="Target game date (default: current MLB slate date in America/New_York)",
     )
     p.add_argument("--model-version", default=None, help="Explicit model version")
     args = p.parse_args()
 
-    target = args.date or datetime.now(UTC).date()
+    target = args.date or current_mlb_date()
     n = generate_predictions_for_date(target, model_version=args.model_version)
     print(f"[DONE] wrote {n} predictions for {target}", flush=True)
     return 0 if n > 0 else 0  # no error on zero - may be off-day

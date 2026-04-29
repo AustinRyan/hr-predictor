@@ -43,7 +43,9 @@ def test_run_daily_calls_all_steps_in_order(monkeypatch: pytest.MonkeyPatch) -> 
 
     calls["refresh_park_factors"].assert_called_once()
     calls["persist_daily_schedule"].assert_called_once_with(date(2026, 4, 22), engine=None)
-    calls["persist_weather_for_today"].assert_called_once()
+    calls["persist_weather_for_today"].assert_called_once_with(
+        target_date=date(2026, 4, 22), engine=None
+    )
     calls["run_incremental_statcast"].assert_called_once()
     assert report.games == 15
     assert report.weather_rows == 12
@@ -104,7 +106,9 @@ def test_park_factors_and_statcast_failures_collected(
     report = run_daily(target_date=date(2026, 4, 22))
 
     # All steps still attempted despite failures.
-    calls["persist_weather_for_today"].assert_called_once()
+    calls["persist_weather_for_today"].assert_called_once_with(
+        target_date=date(2026, 4, 22), engine=None
+    )
     assert any("park_factors" in f for f in report.failures)
     assert any("schedule" in f for f in report.failures)
     assert any("statcast" in f for f in report.failures)

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from src.api.dependencies import get_db
+from src.api.dependencies import get_db, get_model
 from src.api.schemas.matchup import (
     BatterProfile,
     FeatureContribution,
@@ -20,6 +20,7 @@ from src.api.schemas.matchup import (
     PredictionBreakdown,
     WeatherContext,
 )
+from src.models.artifacts import LoadedModel
 
 _log = logging.getLogger(__name__)
 
@@ -57,7 +58,9 @@ _PREDICTION_SQL = text("""
     SELECT prob_at_least_one_hr, prob_at_least_two_hr, expected_hrs,
            matchup_components, feature_contributions, model_version, generated_at
     FROM predictions
-    WHERE game_pk = :game_pk AND batter_id = :batter_id
+    WHERE game_pk = :game_pk
+      AND batter_id = :batter_id
+      AND model_version = :model_version
     ORDER BY generated_at DESC
     LIMIT 1
     """)
@@ -91,6 +94,7 @@ def matchup_detail(
     game_pk: int,
     batter_id: int,
     db: Annotated[Session, Depends(get_db)],
+    loaded: Annotated[LoadedModel, Depends(get_model)],
 ) -> MatchupDetail:
     row = db.execute(_MATCHUP_SQL, {"game_pk": game_pk, "batter_id": batter_id}).mappings().first()
     if row is None:
@@ -100,7 +104,12 @@ def matchup_detail(
         )
 
     pred_row = (
-        db.execute(_PREDICTION_SQL, {"game_pk": game_pk, "batter_id": batter_id}).mappings().first()
+        db.execute(
+            _PREDICTION_SQL,
+            {"game_pk": game_pk, "batter_id": batter_id, "model_version": loaded.version},
+        )
+        .mappings()
+        .first()
     )
     prediction = _prediction_from_row(pred_row) if pred_row else None
 

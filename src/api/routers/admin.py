@@ -22,6 +22,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import text
 
+from src.core.time import current_mlb_date
+
 _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -112,7 +114,7 @@ def _flush_picks_cache() -> None:
 
 def _run_pipeline(target_date: date) -> None:
     """Invoke ingest → feature build → inference. Runs in a worker thread."""
-    from src.features.builder import build_features_for_today
+    from src.features.builder import build_features_for_date
     from src.ingestion.daily_runner import run_daily
     from src.models.inference import generate_predictions_for_date
 
@@ -144,7 +146,7 @@ def _run_pipeline(target_date: date) -> None:
         )
 
         _log.info("refresh: building matchup_features", extra={"date": target_date.isoformat()})
-        feature_rows = build_features_for_today()
+        feature_rows = build_features_for_date(target_date)
         _set_state(
             phase="inference",
             rows_written=None,
@@ -183,7 +185,7 @@ async def refresh_picks() -> dict[str, Any]:
     with _lock:
         if _state["status"] == "running":
             raise HTTPException(409, "refresh already in progress")
-        target = datetime.now(UTC).date()
+        target = current_mlb_date()
         _state.update(
             status="running",
             phase="starting",

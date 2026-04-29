@@ -119,13 +119,19 @@ def load_model(
     *,
     registry_root: Path | None = None,
 ) -> LoadedModel:
-    """Load a specific version or latest. Raises FileNotFoundError if empty."""
+    """Load a specific version, or the production pointer when unset.
+
+    If ``PRODUCTION`` is absent, falls back to newest-by-version directory so
+    freshly-created local registries in tests and notebooks still work.
+    """
     root = registry_root or _DEFAULT_REGISTRY
     if version is None:
-        versions = list_versions(registry_root=root)
-        if not versions:
-            raise FileNotFoundError(f"No versions found in {root}")
-        version = versions[0].version  # newest-first ordering
+        version = current_production(registry_root=root)
+        if version is None:
+            versions = list_versions(registry_root=root)
+            if not versions:
+                raise FileNotFoundError(f"No versions found in {root}")
+            version = versions[0].version  # newest-first ordering fallback
 
     version_dir = root / version
     if not version_dir.exists():

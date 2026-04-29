@@ -45,6 +45,13 @@ class PickSummary(BaseModel):
     barrel_pct_season: float | None = None  # 0..1
     p90_ev_season: float | None = None  # mph
     park_hr_factor_hand: float | None = None  # 100 = neutral
+    pitcher_hr_per_9_season: float | None = None
+    pitcher_barrel_pct_allowed_season: float | None = None
+    batting_order: int | None = None
+    projected_pas: float | None = None
+    wind_carry_cf: float | None = None
+    temperature_f: float | None = None
+    air_density_relative: float | None = None
 
     top_contributing_features: list[FeatureContribution] = Field(default_factory=list)
 

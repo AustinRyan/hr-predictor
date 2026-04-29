@@ -4,7 +4,8 @@ Entry points
 ------------
 * :func:`build_features_for_game` — write rows for one game_pk.
 * :func:`build_features_for_historical` — iterate day-by-day over a date range.
-* :func:`build_features_for_today` — wrap ``_build_features_for_day(CURRENT_DATE)``.
+* :func:`build_features_for_date` — wrap ``_build_features_for_day(target_date)``.
+* :func:`build_features_for_today` — use the current MLB slate date.
 
 Strategy
 --------
@@ -57,6 +58,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.core.db import get_engine
 from src.core.models import MatchupFeature
+from src.core.time import current_mlb_date
 from src.features.batter_rolling import rolling_features_sql
 from src.features.batter_splits import pitch_type_matrix_sql, platoon_splits_sql
 from src.features.batter_tracking import bat_tracking_sql
@@ -206,17 +208,21 @@ def build_features_for_historical(
     return total
 
 
-def build_features_for_today(*, engine: Engine | None = None) -> int:
-    """Build all rows for CURRENT_DATE in one day-batched pass."""
+def build_features_for_date(target_date: date, *, engine: Engine | None = None) -> int:
+    """Build all rows for one explicit date in one day-batched pass."""
     engine = engine or get_engine()
     session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
     with session_factory() as s:
-        today = s.execute(text("SELECT CURRENT_DATE")).scalar_one()
-        total = _build_features_for_day(s, today)
+        total = _build_features_for_day(s, target_date)
         s.commit()
 
     return total
+
+
+def build_features_for_today(*, engine: Engine | None = None) -> int:
+    """Build all rows for the current MLB slate date."""
+    return build_features_for_date(current_mlb_date(), engine=engine)
 
 
 # ---------------------------------------------------------------------------

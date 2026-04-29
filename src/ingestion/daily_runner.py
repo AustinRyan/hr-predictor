@@ -24,6 +24,7 @@ from sqlalchemy.orm import sessionmaker
 from src.core.db import get_engine
 from src.core.logging_config import configure_logging
 from src.core.models import ParkFactor
+from src.core.time import current_mlb_date
 from src.ingestion.mlb_statsapi import persist_daily_schedule
 from src.ingestion.park_factors import refresh_park_factors
 from src.ingestion.statcast_incremental import run_incremental_statcast
@@ -66,7 +67,7 @@ def run_daily(
     skip_weather: bool = False,
     engine: Engine | None = None,
 ) -> DailyRunReport:
-    target_date = target_date or date.today()
+    target_date = target_date or current_mlb_date()
     report = DailyRunReport(target_date=target_date)
 
     # Step 1: park factors.
@@ -90,7 +91,7 @@ def run_daily(
     # Step 3: weather.
     if not skip_weather:
         try:
-            report.weather_rows = persist_weather_for_today(engine=engine)
+            report.weather_rows = persist_weather_for_today(target_date=target_date, engine=engine)
         except Exception as exc:  # noqa: BLE001
             report.failures.append(f"weather: {exc!r}")
             _log.exception("weather step failed")

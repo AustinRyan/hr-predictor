@@ -114,7 +114,9 @@ def test_promote_to_production_raises_on_missing_version(tmp_path: Path) -> None
         promote_to_production("v19700101_000000", registry_root=tmp_path)
 
 
-def test_load_model_latest_when_no_version_specified(tmp_path: Path, tiny_model) -> None:
+def test_load_model_falls_back_to_latest_without_production_pointer(
+    tmp_path: Path, tiny_model
+) -> None:
     ts1 = datetime(2026, 1, 1, tzinfo=UTC)
     ts2 = datetime(2026, 6, 1, tzinfo=UTC)
     save_model(
@@ -139,6 +141,39 @@ def test_load_model_latest_when_no_version_specified(tmp_path: Path, tiny_model)
     )
     loaded = load_model(registry_root=tmp_path)
     assert loaded.metrics["m"] == 2
+
+
+def test_load_model_uses_production_pointer_when_no_version_specified(
+    tmp_path: Path, tiny_model
+) -> None:
+    ts1 = datetime(2026, 1, 1, tzinfo=UTC)
+    ts2 = datetime(2026, 6, 1, tzinfo=UTC)
+    first = save_model(
+        tiny_model,
+        {},
+        {"m": 1},
+        ["f0", "f1", "f2", "f3", "f4"],
+        ("2021-04-01", "2023-10-31"),
+        "h1",
+        registry_root=tmp_path,
+        timestamp=ts1,
+    )
+    save_model(
+        tiny_model,
+        {},
+        {"m": 2},
+        ["f0", "f1", "f2", "f3", "f4"],
+        ("2021-04-01", "2023-10-31"),
+        "h2",
+        registry_root=tmp_path,
+        timestamp=ts2,
+    )
+    promote_to_production(first.name, registry_root=tmp_path)
+
+    loaded = load_model(registry_root=tmp_path)
+
+    assert loaded.version == first.name
+    assert loaded.metrics["m"] == 1
 
 
 def test_load_model_raises_on_empty_registry(tmp_path: Path) -> None:
