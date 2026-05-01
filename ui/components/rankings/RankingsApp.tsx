@@ -52,6 +52,7 @@ function primaryFactor(group: FactorGroup): FactorItem | null {
     BAT: ["BRL", "EV90", "EHR"],
     MATCH: ["SP HR/9", "SP BRL", "HAND"],
     "PARK/WX": ["PARK", "WIND CF", "TEMP"],
+    MARKET: ["EDGE", "BOOK", "FAIR", "EV"],
     MODEL: [],
   };
   const labels = preferred[group.label] ?? [];
@@ -63,7 +64,7 @@ function primaryFactor(group: FactorGroup): FactorItem | null {
 }
 
 function summarySignals(groups: FactorGroup[]): FactorSignal[] {
-  const preferredOrder = ["BAT", "MATCH", "PARK/WX", "MODEL"];
+  const preferredOrder = ["MARKET", "BAT", "MATCH", "PARK/WX"];
   const orderedGroups = [
     ...preferredOrder
       .map((label) => groups.find((group) => group.label === label))
@@ -223,7 +224,7 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                   className={`seg-btn ${sort === k ? "active" : ""}`}
                   onClick={() => setSort(k)}
                 >
-                  {k === "prob" ? "Probability" : k === "ehr" ? "E[HR]" : "Model lift"}
+                  {k === "prob" ? "Probability" : k === "ehr" ? "E[HR]" : "Value edge"}
                 </button>
               ))}
             </div>
@@ -397,8 +398,15 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                         </div>
                         <div className="rk-prob-sub">
                           <span>E {p.ehr.toFixed(3)}</span>
-                          <span className={edgeNeg ? "neg" : "pos"}>{p.edge}</span>
+                          <span className={edgeNeg ? "neg" : "pos"}>{p.edgeLabel ?? "LIFT"} {p.edge}</span>
                         </div>
+                        {p.bookOdds && p.fairOdds && (
+                          <div className="rk-odds-sub">
+                            <span>{p.bookOdds}</span>
+                            <span>fair {p.fairOdds}</span>
+                            {p.ev && <span className={p.ev.startsWith("-") ? "neg" : "pos"}>EV {p.ev}</span>}
+                          </div>
+                        )}
                       </div>
                       <div className="rk-actions">
                         <button

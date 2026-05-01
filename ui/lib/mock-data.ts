@@ -39,6 +39,10 @@ export type Pick = {
   prob: number;
   ehr: number;
   edge: string;
+  edgeLabel?: string;
+  bookOdds?: string;
+  fairOdds?: string;
+  ev?: string;
   neg?: boolean;
   ctx: CtxChip[];
   factors?: FactorGroup[];

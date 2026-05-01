@@ -881,6 +881,27 @@ img { max-width: 100%; display: block; }
 }
 .rk-prob-sub .pos { color: var(--accent); }
 .rk-prob-sub .neg { color: var(--ink-mute); }
+.rk-odds-sub {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: .08em;
+  color: var(--ink-mute);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.rk-odds-sub span {
+  max-width: 142px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rk-odds-sub .pos { color: var(--accent); }
+.rk-odds-sub .neg { color: var(--ink-mute); }
 .rk-ehr, .rk-edge {
   font-family: var(--f-mono); font-size: 13px; letter-spacing: .04em;
   font-variant-numeric: tabular-nums; text-align: right;
