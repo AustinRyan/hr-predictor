@@ -1,62 +1,21 @@
 /**
- * Homerun — mock slate data
+ * Homerun — legacy design fixtures.
  * Ported from phases/phase7/design-source/project/Homerun.html (inline data.js).
- * Will be superseded in Stage 4 by real /picks/today responses.
+ * Production components must not import these fixture values as runtime
+ * fallbacks; live picks come from the Neon-backed query layer.
  */
 
-export type CtxChip = {
-  k: string;
-  v: string;
-  pos?: boolean;
-  neg?: boolean;
-};
+import { headshotUrl, type Pick, type ScoreboardGame, type SlateCard } from "./pick-view";
 
-export type FactorTone = "up" | "down" | "neutral";
-
-export type FactorItem = {
-  label: string;
-  value: string;
-  tone?: FactorTone;
-};
-
-export type FactorGroup = {
-  label: string;
-  items: FactorItem[];
-};
-
-export type Pick = {
-  id: number;
-  first: string;
-  last: string;
-  num: number;
-  team: string;
-  pos: string;
-  hand: "R" | "L" | "S";
-  vs: string;
-  vsTeam: string;
-  park: string;
-  time: string;
-  prob: number;
-  ehr: number;
-  edge: string;
-  edgeLabel?: string;
-  bookOdds?: string;
-  fairOdds?: string;
-  ev?: string;
-  neg?: boolean;
-  ctx: CtxChip[];
-  factors?: FactorGroup[];
-  // Optional for mock data; populated on real picks so rows can link to
-  // /matchup/[gamePk]/[batterId] for the full breakdown.
-  gamePk?: number;
-};
-
-export type ScoreboardGame = {
-  away: string;
-  home: string;
-  time: string;
-  topProb: string;
-};
+export type {
+  CtxChip,
+  FactorGroup,
+  FactorItem,
+  FactorTone,
+  Pick,
+  ScoreboardGame,
+  SlateCard,
+} from "./pick-view";
 
 export const TEAMS: readonly string[] = [
   "LAA","LAD","SF","SD","ATL","NYY","NYM","BOS","PHI","HOU",
@@ -171,22 +130,7 @@ export const TICKER: readonly string[] = [
   "EDGE > +2.0 · 8 PLAYS",
 ];
 
-/** MLB CDN headshot with size + query params that work (from the design). */
-export function headshotUrl(mlbamId: number): string {
-  return `https://img.mlbstatic.com/mlb-photos/image/upload/w_426,q_auto/v1/people/${mlbamId}/headshot/67/current`;
-}
-
-/** Slate cards — synthesized per-game from top pick per game_pk (via park + time). */
-export type SlateCard = {
-  time: string;
-  away: string;
-  home: string;
-  park: string;
-  windText: string;
-  tempText: string;
-  parkText: string;
-  topPick: string;
-};
+export { headshotUrl };
 
 export const SLATE_CARDS: readonly SlateCard[] = [
   { time: "6:40 PM ET", away: "SF",  home: "PHI", park: "CITIZENS BANK", windText: "+11 LF", tempText: "74°", parkText: "+7", topPick: "K. SCHWARBER · 11.4%" },

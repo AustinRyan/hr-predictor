@@ -4,7 +4,7 @@
  * Returns JSON that makes the deploy's actual state visible so the user
  * (or I) can curl the endpoint and see whether the DB env var is set,
  * whether Neon is reachable, and whether there are actually predictions
- * to render. If the site shows mock data, this route pinpoints why.
+ * to render. If the site shows no data, this route pinpoints why.
  *
  * Safe to expose publicly: only returns shape + counts, no row data.
  */

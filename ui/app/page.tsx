@@ -9,7 +9,7 @@ import { Footer } from "@/components/landing/Footer";
 import { RankingsApp } from "@/components/rankings/RankingsApp";
 import { getModelMetrics, getPicksToday } from "@/lib/api";
 import { adaptPicksList, extractHeroStats, type HeroStats } from "@/lib/adapters";
-import type { Pick, ScoreboardGame, SlateCard } from "@/lib/mock-data";
+import type { Pick, ScoreboardGame, SlateCard } from "@/lib/pick-view";
 import {
   buildScoreboard,
   buildSlate,

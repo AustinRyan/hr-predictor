@@ -22,7 +22,8 @@ ui/
 │   └── rankings/
 │       └── RankingsApp.tsx  # client component — filters + evidence-led board + parlay rail
 ├── lib/
-│   └── mock-data.ts      # typed PICKS/SCOREBOARD/SLATE_CARDS/TICKER (Stage 4 replaces w/ real API)
+│   ├── pick-view.ts      # display types + MLB headshot helper used by real picks
+│   └── mock-data.ts      # legacy design fixtures only; not used as runtime fallback
 └── remotion/             # renderable promotional video compositions
 ```
 
@@ -30,13 +31,15 @@ ui/
 All tokens live as CSS custom properties in `globals.css` under `:root` and `[data-accent="..."]` / `[data-intensity="..."]` variants. The runtime tweaks panel (Stage 3+) flips `data-accent` on `<html>` to retheme the whole surface. Hoisting these into `tailwind.config` would break that mechanism.
 
 ## Stage progress
-- **Stage 1 (now):** scaffold + static landing w/ mock data, no scroll animation yet.
+- **Stage 1:** scaffold + static landing from the original design bundle.
 - **Stage 2:** scroll-linked signature arc, chyrons, loading ritual, HR easter egg.
 - **Stage 3:** parlay lock/ticket flip + share-as-image.
 - **Stage 4:** wire rankings + hero #1 to live predictions. The app now
   queries Neon directly from server code, filters to one active model version
   for the latest slate, uses MLB Eastern date for "today", and displays
-  real PropLine odds edge when `odds_snapshots` has matching rows.
+  real PropLine odds edge when `odds_snapshots` has matching rows. The
+  visible homepage no longer falls back to mock picks; query failures or
+  empty slates render explicit empty states.
 - **Stage 5:** `/player/[id]`, `/matchup/[gamePk]/[batterId]`, `/model` pages in same aesthetic.
 
 ## Conventions

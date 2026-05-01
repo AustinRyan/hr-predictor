@@ -9,7 +9,7 @@
  * this prediction.
  */
 
-import type { CtxChip, FactorGroup, FactorItem, Pick as DesignPick } from "./mock-data";
+import type { CtxChip, FactorGroup, FactorItem, Pick as DesignPick } from "./pick-view";
 import type { FeatureContribution, PickSummary } from "./types";
 
 function splitName(

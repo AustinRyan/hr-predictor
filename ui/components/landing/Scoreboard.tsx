@@ -1,9 +1,9 @@
-import { SCOREBOARD, type ScoreboardGame } from "@/lib/mock-data";
+import type { ScoreboardGame } from "@/lib/pick-view";
 
 type Props = { games?: readonly ScoreboardGame[] };
 
 export function Scoreboard({ games }: Props = {}) {
-  const list: readonly ScoreboardGame[] = games && games.length > 0 ? games : SCOREBOARD;
+  const list: readonly ScoreboardGame[] = games ?? [];
   return (
     <section className="scoreboard" id="scoreboard">
       <div className="section-head">
@@ -20,36 +20,54 @@ export function Scoreboard({ games }: Props = {}) {
       </div>
 
       <div className="scoreboard-leds">
-        {list.map((g, i) => {
-          const [name, pct] = g.topProb.split(" · ");
-          return (
-            <article className="led" key={`${g.home}-${g.away}-${i}`}>
-              <div className="led-top">
-                <span>GAME {String(i + 1).padStart(2, "0")}</span>
-                <span>{g.time} ET</span>
-              </div>
-              <div className="led-row">
-                <div className="led-team">
-                  <div className="led-abbr">{g.away}</div>
-                  <div className="led-info">
-                    <div className="led-name">{g.away} AWAY</div>
-                    <div className="led-sub">projected top pick</div>
-                  </div>
+        {list.length === 0 ? (
+          <article className="led">
+            <div className="led-top">
+              <span>LIVE DB</span>
+              <span>EMPTY</span>
+            </div>
+            <div className="led-row">
+              <div className="led-team">
+                <div className="led-abbr">NO</div>
+                <div className="led-info">
+                  <div className="led-name">NO LIVE PICKS LOADED</div>
+                  <div className="led-sub">run refresh picks or check Vercel database env</div>
                 </div>
               </div>
-              <div className="led-row">
-                <div className="led-team">
-                  <div className="led-abbr">{g.home}</div>
-                  <div className="led-info">
-                    <div className="led-name">{g.home} HOME</div>
-                    <div className="led-sub">{name}</div>
+            </div>
+          </article>
+        ) : (
+          list.map((g, i) => {
+            const [name, pct] = g.topProb.split(" · ");
+            return (
+              <article className="led" key={`${g.home}-${g.away}-${i}`}>
+                <div className="led-top">
+                  <span>GAME {String(i + 1).padStart(2, "0")}</span>
+                  <span>{g.time} ET</span>
+                </div>
+                <div className="led-row">
+                  <div className="led-team">
+                    <div className="led-abbr">{g.away}</div>
+                    <div className="led-info">
+                      <div className="led-name">{g.away} AWAY</div>
+                      <div className="led-sub">projected top pick</div>
+                    </div>
                   </div>
                 </div>
-                <div className="led-prob">{pct}</div>
-              </div>
-            </article>
-          );
-        })}
+                <div className="led-row">
+                  <div className="led-team">
+                    <div className="led-abbr">{g.home}</div>
+                    <div className="led-info">
+                      <div className="led-name">{g.home} HOME</div>
+                      <div className="led-sub">{name}</div>
+                    </div>
+                  </div>
+                  <div className="led-prob">{pct}</div>
+                </div>
+              </article>
+            );
+          })
+        )}
       </div>
 
       <div className="scoreboard-stats">

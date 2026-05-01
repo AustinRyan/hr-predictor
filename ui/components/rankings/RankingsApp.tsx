@@ -4,13 +4,11 @@ import { Check, ChevronDown, ExternalLink, Plus } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
-  PICKS,
-  TEAMS,
   headshotUrl,
   type FactorGroup,
   type FactorItem,
   type Pick,
-} from "@/lib/mock-data";
+} from "@/lib/pick-view";
 import { Ticket } from "./Ticket";
 
 type SortKey = "prob" | "ehr" | "edge";
@@ -26,6 +24,8 @@ function parseEdge(e: string): number {
 type RankingsProps = {
   picks?: readonly Pick[];
 };
+
+const EMPTY_PICKS: readonly Pick[] = [];
 
 function fallbackFactors(p: Pick): FactorGroup[] {
   return [
@@ -83,7 +83,7 @@ function signalGroupLabel(label: string): string {
 }
 
 export function RankingsApp({ picks }: RankingsProps = {}) {
-  const source: readonly Pick[] = picks && picks.length > 0 ? picks : PICKS;
+  const source: readonly Pick[] = picks ?? EMPTY_PICKS;
 
   const [sort, setSort] = useState<SortKey>("prob");
   const [minProb, setMinProb] = useState<number>(3.0);
@@ -120,6 +120,11 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
     }
     return sorted.slice(0, limit);
   }, [source, sort, minProb, team, limit, onePerGame]);
+
+  const teamOptions = useMemo(
+    () => [...new Set(source.map((p) => p.team).filter((t) => t && t !== "—"))].sort(),
+    [source],
+  );
 
   const parlayLegs = source.filter((p) => parlay.includes(p.id));
   const combinedP = parlayLegs.reduce((acc, p) => acc * (p.prob / 100), 1);
@@ -254,8 +259,8 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
               onChange={(e) => setTeam(e.target.value)}
               aria-label="Team filter"
             >
-              <option value="">ALL · 30 TEAMS</option>
-              {[...TEAMS].sort().map((t) => (
+              <option value="">ALL TEAMS</option>
+              {teamOptions.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
@@ -331,8 +336,17 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                 <div className="parlay-empty" style={{ padding: "80px 20px" }}>
                   <div className="pe-icon">◆</div>
                   <div className="pe-text">
-                    No picks match your filters.<br />
-                    Loosen the minimum, or change the team.
+                    {source.length === 0 ? (
+                      <>
+                        No live picks loaded.<br />
+                        Run the refresh pipeline or check the database connection.
+                      </>
+                    ) : (
+                      <>
+                        No picks match your filters.<br />
+                        Loosen the minimum, or change the team.
+                      </>
+                    )}
                   </div>
                 </div>
               ) : (
