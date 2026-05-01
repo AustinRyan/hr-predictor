@@ -25,7 +25,7 @@ deployed site reads.
 
    | Name | Value |
    |---|---|
-   | `DATABASE_URL` | `postgresql://USER:PASSWORD@HOST/DB?sslmode=require` |
+   | `DATABASE_URL` | Paste the pooled Neon connection string from your Neon dashboard. Do not commit the value. |
 
    Do NOT set `NEXT_PUBLIC_ALLOW_REFRESH` — keep the button hidden in prod.
 
