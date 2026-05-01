@@ -43,11 +43,21 @@ function formatTime(utc: string | null): string {
   }
 }
 
-function formatEdge(expectedHrs: number | null, prob: number): string {
-  // No book odds in v1 — "edge" is a cosmetic delta vs the ~4.65% base rate.
-  const delta = expectedHrs !== null ? prob * 100 - 4.65 : prob * 100 - 4.65;
+function formatEdge(p: PickSummary): string {
+  const delta =
+    p.model_edge !== null
+      ? p.model_edge * 100
+      : p.expected_hrs !== null
+        ? p.prob_at_least_one_hr * 100 - 4.65
+        : p.prob_at_least_one_hr * 100 - 4.65;
   const sign = delta >= 0 ? "+" : "";
   return `${sign}${delta.toFixed(1)}`;
+}
+
+function formatAmerican(value: number | null): string | null {
+  if (value === null) return null;
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value}`;
 }
 
 /**
@@ -217,6 +227,21 @@ function factorGroups(p: PickSummary): FactorGroup[] {
       ].filter((x): x is FactorItem => x !== null),
     },
     {
+      label: "MARKET",
+      items: [
+        factor("BOOK", p.odds_bookmaker, "neutral"),
+        factor("ODDS", formatAmerican(p.odds_price_american), "neutral"),
+        factor("IMP", pct(p.market_implied_probability, 1), "neutral"),
+        factor(
+          "EV",
+          p.expected_value_per_unit === null
+            ? null
+            : `${p.expected_value_per_unit >= 0 ? "+" : ""}${(p.expected_value_per_unit * 100).toFixed(1)}%`,
+          p.expected_value_per_unit !== null && p.expected_value_per_unit > 0 ? "up" : "down",
+        ),
+      ].filter((x): x is FactorItem => x !== null),
+    },
+    {
       label: "MODEL",
       items: modelDriverFactors(p.top_contributing_features),
     },
@@ -226,7 +251,7 @@ function factorGroups(p: PickSummary): FactorGroup[] {
 
 export function adaptPickSummary(p: PickSummary): DesignPick {
   const { first, last } = splitName(p.batter_name, p.batter_id);
-  const edgeStr = formatEdge(p.expected_hrs, p.prob_at_least_one_hr);
+  const edgeStr = formatEdge(p);
   const edgeNeg = edgeStr.startsWith("-");
   return {
     id: p.batter_id,

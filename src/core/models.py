@@ -24,6 +24,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     SmallInteger,
     String,
@@ -490,4 +491,49 @@ class Prediction(Base):
             "model_version",
             name="uq_predictions_game_batter_model",
         ),
+    )
+
+
+class OddsSnapshot(Base):
+    """Normalized sportsbook odds snapshot for a single prop outcome."""
+
+    __tablename__ = "odds_snapshots"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    snapshot_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    sport_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    game_pk: Mapped[int | None] = mapped_column(Integer)
+    game_date: Mapped[date] = mapped_column(Date, nullable=False)
+    commence_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    home_team: Mapped[str] = mapped_column(String(128), nullable=False)
+    away_team: Mapped[str] = mapped_column(String(128), nullable=False)
+    bookmaker_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    bookmaker_title: Mapped[str] = mapped_column(String(128), nullable=False)
+    market_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome_name: Mapped[str] = mapped_column(String(16), nullable=False)
+    player_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    batter_id: Mapped[int | None] = mapped_column(Integer)
+    price_american: Mapped[int] = mapped_column(Integer, nullable=False)
+    point: Mapped[float | None] = mapped_column(Float)
+    implied_probability: Mapped[float] = mapped_column(Float, nullable=False)
+    no_vig_probability: Mapped[float | None] = mapped_column(Float)
+    market_last_update: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    raw_outcome: Mapped[dict | None] = mapped_column(JSONB)
+
+    __table_args__ = (
+        UniqueConstraint("snapshot_key", name="uq_odds_snapshots_snapshot_key"),
+        Index(
+            "ix_odds_snapshots_game_batter_market_fetched",
+            "game_date",
+            "game_pk",
+            "batter_id",
+            "market_key",
+            "fetched_at",
+        ),
+        Index("ix_odds_snapshots_batter_date", "batter_id", "game_date"),
     )

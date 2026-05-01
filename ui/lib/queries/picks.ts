@@ -19,6 +19,15 @@ type Row = {
   expected_hrs: string | null;
   feature_contributions: Record<string, number> | null;
   model_version: string;
+  odds_bookmaker_key: string | null;
+  odds_bookmaker: string | null;
+  odds_price_american: number | null;
+  odds_point: string | null;
+  market_implied_probability: string | null;
+  market_no_vig_probability: string | null;
+  model_edge: string | null;
+  expected_value_per_unit: string | null;
+  odds_fetched_at: Date | null;
   game_start_utc: Date | null;
   batter_name: string | null;
   batter_bats: string | null;
@@ -72,6 +81,16 @@ function toPick(row: Row): PickSummary {
     pitcher_throws: row.pitcher_throws,
     prob_at_least_one_hr: Number(row.prob_at_least_one_hr),
     expected_hrs: n(row.expected_hrs),
+    odds_bookmaker: row.odds_bookmaker,
+    odds_bookmaker_key: row.odds_bookmaker_key,
+    odds_price_american:
+      row.odds_price_american === null ? null : Number(row.odds_price_american),
+    odds_point: n(row.odds_point),
+    market_implied_probability: n(row.market_implied_probability),
+    market_no_vig_probability: n(row.market_no_vig_probability),
+    model_edge: n(row.model_edge),
+    expected_value_per_unit: n(row.expected_value_per_unit),
+    odds_fetched_at: row.odds_fetched_at ? new Date(row.odds_fetched_at).toISOString() : null,
     barrel_pct_season: n(row.b_barrel_pct_season),
     p90_ev_season: n(row.b_p90_ev_season),
     park_hr_factor_hand: n(row.park_hr_factor_hand),
@@ -130,6 +149,43 @@ async function queryForDate(
   const team = q.team ?? null;
   const sortByEhr = q.sort === "expected_hrs";
   const rows = (await sql`
+    WITH latest_book_odds AS (
+      SELECT
+        os.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY
+            os.game_pk,
+            os.batter_id,
+            os.market_key,
+            os.outcome_name,
+            os.bookmaker_key,
+            os.point
+          ORDER BY
+            os.fetched_at DESC,
+            os.market_last_update DESC NULLS LAST,
+            os.id DESC
+        ) AS rn
+      FROM odds_snapshots os
+      WHERE os.game_date = ${targetDate}
+        AND os.market_key = 'batter_home_runs'
+        AND os.outcome_name IN ('Over', 'Yes')
+        AND os.batter_id IS NOT NULL
+    ),
+    best_odds AS (
+      SELECT DISTINCT ON (game_pk, batter_id)
+        game_pk,
+        batter_id,
+        bookmaker_key,
+        bookmaker_title,
+        price_american,
+        point,
+        implied_probability,
+        no_vig_probability,
+        fetched_at
+      FROM latest_book_odds
+      WHERE rn = 1
+      ORDER BY game_pk, batter_id, price_american DESC, fetched_at DESC
+    )
     SELECT
       p.game_pk,
       p.game_date,
@@ -139,6 +195,26 @@ async function queryForDate(
       p.expected_hrs,
       p.feature_contributions,
       p.model_version,
+      bo.bookmaker_key AS odds_bookmaker_key,
+      bo.bookmaker_title AS odds_bookmaker,
+      bo.price_american AS odds_price_american,
+      bo.point AS odds_point,
+      bo.implied_probability AS market_implied_probability,
+      bo.no_vig_probability AS market_no_vig_probability,
+      CASE
+        WHEN bo.implied_probability IS NULL THEN NULL
+        ELSE p.prob_at_least_one_hr - bo.implied_probability
+      END AS model_edge,
+      CASE
+        WHEN bo.price_american IS NULL THEN NULL
+        WHEN bo.price_american > 0 THEN
+          p.prob_at_least_one_hr * (bo.price_american::float / 100.0)
+          - (1.0 - p.prob_at_least_one_hr)
+        ELSE
+          p.prob_at_least_one_hr * (100.0 / ABS(bo.price_american)::float)
+          - (1.0 - p.prob_at_least_one_hr)
+      END AS expected_value_per_unit,
+      bo.fetched_at AS odds_fetched_at,
       ds.game_start_utc,
       bp.full_name AS batter_name,
       bp.bats AS batter_bats,
@@ -170,6 +246,9 @@ async function queryForDate(
      AND mf.batter_id = p.batter_id
      AND mf.pitcher_id = p.pitcher_id
      AND mf.game_date = p.game_date
+    LEFT JOIN best_odds bo
+      ON bo.game_pk = p.game_pk
+     AND bo.batter_id = p.batter_id
     WHERE p.game_date = ${targetDate}
       AND p.model_version = ${modelVersion}
       AND p.prob_at_least_one_hr >= ${minProb}

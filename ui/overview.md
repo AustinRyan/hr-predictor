@@ -35,7 +35,8 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
 - **Stage 3:** parlay lock/ticket flip + share-as-image.
 - **Stage 4:** wire rankings + hero #1 to live predictions. The app now
   queries Neon directly from server code, filters to one active model version
-  for the latest slate, and uses MLB Eastern date for "today".
+  for the latest slate, uses MLB Eastern date for "today", and displays
+  real PropLine odds edge when `odds_snapshots` has matching rows.
 - **Stage 5:** `/player/[id]`, `/matchup/[gamePk]/[batterId]`, `/model` pages in same aesthetic.
 
 ## Conventions
@@ -48,6 +49,9 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
   and `MODEL` factor set inside the expandable evidence drawer. Keep new
   leaderboard data in `PickSummary -> adapter -> Pick.factors`; avoid adding
   more standalone columns unless the factor needs to drive sorting.
+- Real betting edge is `PickSummary.model_edge` from persisted odds
+  snapshots. When odds are missing, the adapter falls back to the old
+  model-vs-baseline lift so the UI remains populated.
 - MLB headshots via `https://img.mlbstatic.com/mlb-photos/image/upload/w_426,q_auto/v1/people/{id}/headshot/67/current`; use native `<img>` with `eslint-disable-next-line @next/next/no-img-element` (not `<Image>`) so duotone CSS filters compose cleanly.
 
 ## Commands

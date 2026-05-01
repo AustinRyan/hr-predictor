@@ -28,3 +28,4 @@ None within `src/`. External: `pydantic`, `pydantic-settings`, `sqlalchemy`, `ps
 - `Settings.model_config` uses `extra="ignore"`, so unknown env vars in `.env` are silently dropped — intentional, but be aware when debugging missing config.
 - The DB URL scheme is `postgresql+psycopg://` (psycopg3), NOT `postgresql://` (psycopg2).
 - Use `current_mlb_date()` for slate-facing pipeline/API defaults. Plain `date.today()` or UTC `datetime.now(UTC).date()` can flip to the next day before late West Coast games finish.
+- PropLine odds config lives here as `PROP_LINE_API_KEY` and `PROP_LINE_BASE_URL`. The key is optional; odds refresh steps skip cleanly when it is absent.

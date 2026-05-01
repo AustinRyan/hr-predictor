@@ -35,7 +35,7 @@ echo "→ refreshing predictions for ${TARGET_DATE}"
 echo "→ database: $(printf '%s' "$DATABASE_URL" | sed -E 's|(://[^:]+:)[^@]+(@)|\1***\2|')"
 
 echo
-echo "[1/3] ingesting schedule + lineups + weather + statcast"
+echo "[1/4] ingesting schedule + lineups + weather + statcast"
 uv run python -c "
 from datetime import date
 from src.ingestion.daily_runner import run_daily
@@ -44,7 +44,7 @@ print(f'  games={r.games} weather_rows={r.weather_rows} statcast_pitches={r.stat
 "
 
 echo
-echo "[2/3] filling proxy lineups for any teams missing today's lineup"
+echo "[2/4] filling proxy lineups for any teams missing today's lineup"
 uv run python -c "
 from datetime import date
 from sqlalchemy import text
@@ -86,7 +86,7 @@ print(f'  proxy lineup rows inserted: {n}')
 "
 
 echo
-echo "[3/3] building matchup_features + running inference"
+echo "[3/4] building matchup_features + running inference"
 uv run python -c "
 from src.features.builder import build_features_for_today
 from src.models.inference import generate_predictions_for_date
@@ -98,5 +98,21 @@ print(f'  predictions written: {rows}')
 "
 
 echo
+echo "[4/4] fetching sportsbook odds"
+if [[ -z "${PROP_LINE_API_KEY:-}" ]]; then
+  echo "  skipped: PROP_LINE_API_KEY not set"
+else
+  uv run python -c "
+from datetime import date
+from src.ingestion.prop_line_odds import persist_mlb_batter_hr_odds
+r = persist_mlb_batter_hr_odds(date.fromisoformat('${TARGET_DATE}'))
+print(
+    f'  odds_rows={r.rows_written} events={r.events_matched}/{r.events_seen} '
+    f'unmatched_players={len(r.unmatched_players)} failures={r.failures}'
+)
+"
+fi
+
+echo
 echo "✓ refresh complete for ${TARGET_DATE}"
-echo "  reload the deployed site to see fresh picks"
+echo "  reload the deployed site to see fresh picks and real odds edge"

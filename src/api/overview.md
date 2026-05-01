@@ -75,6 +75,12 @@ $ curl -s 'http://127.0.0.1:8765/picks/today?limit=5'
     "pitcher_throws": null,
     "prob_at_least_one_hr": 0.1025,
     "expected_hrs": 0.1025,
+    "odds_bookmaker": "DraftKings",
+    "odds_price_american": 700,
+    "market_implied_probability": 0.125,
+    "market_no_vig_probability": 0.121,
+    "model_edge": -0.0225,
+    "expected_value_per_unit": -0.18,
     "pitcher_hr_per_9_season": 1.12,
     "pitcher_barrel_pct_allowed_season": 0.08,
     "batting_order": 2,
@@ -191,6 +197,10 @@ Consistent `{error: str, detail?: str}` body:
 - `/picks/today`, `/player/{id}`, and `/matchup/*` only expose rows for
   the model version loaded into app state. Historical/stale prediction
   versions can remain in the DB without leaking into current responses.
+- `/picks/today` joins the latest best available PropLine
+  `batter_home_runs` Over snapshot per `(game_pk, batter_id)` when odds
+  have been ingested. Odds fields are nullable so stale/missing provider
+  data does not hide predictions.
 - Cache keys include the current production model version.
 - Redis failures degrade gracefully.
 - `/health` returns 503 (not 200) when Postgres or Redis is down.

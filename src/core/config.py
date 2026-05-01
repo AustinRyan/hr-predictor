@@ -23,6 +23,14 @@ class Settings(BaseSettings):
         description="Redis connection URL.",
     )
     log_level: str = Field(default="INFO", description="Root logger level.")
+    prop_line_api_key: str | None = Field(
+        default=None,
+        description="PropLine API key for sportsbook player prop odds.",
+    )
+    prop_line_base_url: str = Field(
+        default="https://api.prop-line.com/v1",
+        description="Base URL for PropLine's The-Odds-API-compatible endpoints.",
+    )
 
 
 @lru_cache(maxsize=1)
