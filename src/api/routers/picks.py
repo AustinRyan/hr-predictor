@@ -15,6 +15,7 @@ from src.api.dependencies import get_db, get_model
 from src.api.schemas.picks import FeatureContribution, PickSummary
 from src.core.time import current_mlb_date
 from src.models.artifacts import LoadedModel
+from src.models.odds import edge_probability, expected_value_per_unit
 
 _log = logging.getLogger(__name__)
 
@@ -22,6 +23,43 @@ router = APIRouter(prefix="/picks", tags=["picks"])
 
 
 _PICKS_TODAY_SQL = text("""
+    WITH latest_book_odds AS (
+        SELECT
+            os.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY
+                    os.game_pk,
+                    os.batter_id,
+                    os.market_key,
+                    os.outcome_name,
+                    os.bookmaker_key,
+                    os.point
+                ORDER BY
+                    os.fetched_at DESC,
+                    os.market_last_update DESC NULLS LAST,
+                    os.id DESC
+            ) AS rn
+        FROM odds_snapshots os
+        WHERE os.game_date = :target_date
+          AND os.market_key = 'batter_home_runs'
+          AND os.outcome_name IN ('Over', 'Yes')
+          AND os.batter_id IS NOT NULL
+    ),
+    best_odds AS (
+        SELECT DISTINCT ON (game_pk, batter_id)
+            game_pk,
+            batter_id,
+            bookmaker_key,
+            bookmaker_title,
+            price_american,
+            point,
+            implied_probability,
+            no_vig_probability,
+            fetched_at
+        FROM latest_book_odds
+        WHERE rn = 1
+        ORDER BY game_pk, batter_id, price_american DESC, fetched_at DESC
+    )
     SELECT
         p.game_pk,
         p.game_date,
@@ -31,6 +69,13 @@ _PICKS_TODAY_SQL = text("""
         p.expected_hrs,
         p.feature_contributions,
         p.model_version,
+        bo.bookmaker_key AS odds_bookmaker_key,
+        bo.bookmaker_title AS odds_bookmaker,
+        bo.price_american AS odds_price_american,
+        bo.point AS odds_point,
+        bo.implied_probability AS market_implied_probability,
+        bo.no_vig_probability AS market_no_vig_probability,
+        bo.fetched_at AS odds_fetched_at,
         ds.game_start_utc,
         bp.full_name AS batter_name,
         bp.bats AS batter_bats,
@@ -52,13 +97,28 @@ _PICKS_TODAY_SQL = text("""
         tm_away.abbr AS away_abbr,
         ds.home_team_id,
         ds.away_team_id,
-        -- batter's team side inferred later in Python via lineup; for now NULL
-        NULL::text AS team_abbr
+        COALESCE(
+            tm_batter.abbr,
+            CASE
+                WHEN mf.ctx_is_home IS TRUE THEN tm_home.abbr
+                WHEN mf.ctx_is_home IS FALSE THEN tm_away.abbr
+                ELSE NULL
+            END
+        ) AS team_abbr
     FROM predictions p
     LEFT JOIN daily_schedule ds ON ds.game_pk = p.game_pk
     LEFT JOIN parks pk ON pk.park_id = ds.venue_id
     LEFT JOIN players bp ON bp.mlbam_id = p.batter_id
     LEFT JOIN players pp ON pp.mlbam_id = p.pitcher_id
+    LEFT JOIN LATERAL (
+        SELECT pl.team_id
+        FROM projected_lineups pl
+        WHERE pl.game_pk = p.game_pk
+          AND pl.batter_id = p.batter_id
+        ORDER BY pl.is_confirmed DESC, pl.fetched_at DESC NULLS LAST, pl.batting_order ASC
+        LIMIT 1
+    ) batter_lineup ON TRUE
+    LEFT JOIN teams tm_batter ON tm_batter.team_id = batter_lineup.team_id
     LEFT JOIN teams tm_home ON tm_home.team_id = ds.home_team_id
     LEFT JOIN teams tm_away ON tm_away.team_id = ds.away_team_id
     LEFT JOIN matchup_features mf
@@ -66,12 +126,21 @@ _PICKS_TODAY_SQL = text("""
      AND mf.batter_id = p.batter_id
      AND mf.pitcher_id = p.pitcher_id
      AND mf.game_date = p.game_date
+    LEFT JOIN best_odds bo
+      ON bo.game_pk = p.game_pk
+     AND bo.batter_id = p.batter_id
     WHERE p.game_date = :target_date
       AND p.model_version = :model_version
       AND p.prob_at_least_one_hr >= :min_prob
       AND (CAST(:team AS text) IS NULL
-           OR tm_home.abbr = CAST(:team AS text)
-           OR tm_away.abbr = CAST(:team AS text))
+           OR COALESCE(
+                tm_batter.abbr,
+                CASE
+                    WHEN mf.ctx_is_home IS TRUE THEN tm_home.abbr
+                    WHEN mf.ctx_is_home IS FALSE THEN tm_away.abbr
+                    ELSE NULL
+                END
+           ) = UPPER(CAST(:team AS text)))
     ORDER BY
         CASE CAST(:sort AS text)
              WHEN 'expected_hrs' THEN p.expected_hrs
@@ -88,20 +157,30 @@ def _row_to_pick(row) -> PickSummary:
     sorted_items = sorted(contribs_raw.items(), key=lambda kv: -abs(kv[1]))[:5]
     contributions = [FeatureContribution(name=k, contribution=float(v)) for k, v in sorted_items]
 
-    # Team abbreviation: we don't have a projected_lineups join here; expose as None
-    # in v1. Phase 7+ can wire it in if UI needs it.
-    team_abbr = None
-
     def _f(key: str) -> float | None:
         v = row.get(key) if hasattr(row, "get") else row[key]
         return float(v) if v is not None else None
+
+    market_p = _f("market_implied_probability")
+    model_p = float(row["prob_at_least_one_hr"])
+    odds_price = row["odds_price_american"]
+    model_edge = (
+        edge_probability(model_probability=model_p, market_probability=market_p)
+        if market_p
+        else None
+    )
+    ev = (
+        expected_value_per_unit(model_probability=model_p, american_odds=int(odds_price))
+        if odds_price is not None
+        else None
+    )
 
     return PickSummary(
         batter_id=int(row["batter_id"]),
         batter_name=row["batter_name"],
         batter_bats=row["batter_bats"],
         batter_position=row["batter_position"],
-        team_abbr=team_abbr,
+        team_abbr=row["team_abbr"],
         game_pk=int(row["game_pk"]),
         game_date=row["game_date"],
         game_start_utc=row["game_start_utc"],
@@ -111,8 +190,17 @@ def _row_to_pick(row) -> PickSummary:
         pitcher_id=int(row["pitcher_id"]),
         pitcher_name=row["pitcher_name"],
         pitcher_throws=row["pitcher_throws"],
-        prob_at_least_one_hr=float(row["prob_at_least_one_hr"]),
+        prob_at_least_one_hr=model_p,
         expected_hrs=(float(row["expected_hrs"]) if row["expected_hrs"] is not None else None),
+        odds_bookmaker=row["odds_bookmaker"],
+        odds_bookmaker_key=row["odds_bookmaker_key"],
+        odds_price_american=(int(odds_price) if odds_price is not None else None),
+        odds_point=_f("odds_point"),
+        market_implied_probability=market_p,
+        market_no_vig_probability=_f("market_no_vig_probability"),
+        model_edge=model_edge,
+        expected_value_per_unit=ev,
+        odds_fetched_at=row["odds_fetched_at"],
         barrel_pct_season=_f("b_barrel_pct_season"),
         p90_ev_season=_f("b_p90_ev_season"),
         park_hr_factor_hand=_f("park_hr_factor_hand"),

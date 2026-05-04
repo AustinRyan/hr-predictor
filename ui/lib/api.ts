@@ -9,7 +9,7 @@
  *
  * Call sites (page.tsx, player/[id]/page.tsx, matchup/.../page.tsx,
  * model/page.tsx) are unchanged — the function signatures preserve the
- * T | null contract so callers fall back to empty states on DB errors.
+ * T | null contract so callers fall back to explicit empty states on DB errors.
  */
 
 import type {
@@ -35,7 +35,7 @@ async function safe<T>(fn: () => Promise<T>, label: string): Promise<T | null> {
     return await fn();
   } catch (err) {
     // Log loudly — Vercel function logs pick this up and are how we
-    // diagnose "site shows mock data" reports. Includes the label so
+    // diagnose "site shows no data" reports. Includes the label so
     // you can tell which query failed when multiple fire in parallel.
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;

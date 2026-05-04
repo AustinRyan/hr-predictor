@@ -30,6 +30,16 @@ export type PickSummary = {
   prob_at_least_one_hr: number;
   expected_hrs: number | null;
 
+  odds_bookmaker: string | null;
+  odds_bookmaker_key: string | null;
+  odds_price_american: number | null;
+  odds_point: number | null;
+  market_implied_probability: number | null;
+  market_no_vig_probability: number | null;
+  model_edge: number | null;
+  expected_value_per_unit: number | null;
+  odds_fetched_at: string | null;
+
   barrel_pct_season: number | null;
   p90_ev_season: number | null;
   park_hr_factor_hand: number | null;

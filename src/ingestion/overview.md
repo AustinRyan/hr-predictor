@@ -46,6 +46,11 @@ All external responses are parsed through Pydantic wire models
   slate days. Collects per-step failures without bailing.
   Runs as `python -m src.ingestion.daily_runner [--date YYYY-MM-DD]
   [--skip-statcast] [--skip-weather]`.
+- `prop_line_odds.persist_mlb_batter_hr_odds(target_date, engine=...)`
+  — fetches PropLine MLB `batter_home_runs` odds, normalizes Over/Under
+  outcomes through Pydantic models, matches games/players to local IDs,
+  and upserts idempotent rows into `odds_snapshots`. CLI:
+  `python -m src.ingestion.prop_line_odds --date YYYY-MM-DD`.
 - `scheduler.start_scheduler()` — blocking APScheduler process with a
   7 AM ET morning pull (full `daily_runner`) and an hourly 2–10 PM ET
   pre-game refresh (skip Statcast).
@@ -64,6 +69,7 @@ from src.ingestion.mlb_statsapi import persist_daily_schedule
 from src.ingestion.weather import persist_weather_for_today
 from src.ingestion.statcast_incremental import run_incremental_statcast
 from src.ingestion.daily_runner import run_daily, DailyRunReport
+from src.ingestion.prop_line_odds import persist_mlb_batter_hr_odds
 from src.ingestion.scheduler import build_scheduler, start_scheduler
 ```
 
@@ -121,3 +127,9 @@ from src.ingestion.scheduler import build_scheduler, start_scheduler
   7 days. Savant updates this leaderboard seasonally.
 - **`fetch_game_content` lives on StatsAPI v1.1, not v1.** See
   `phases/phase2/NOTES.md` → "StatsAPI client — feed/live is v1.1".
+- **PropLine odds are persisted snapshots, not live reads from picks.**
+  This protects page latency, preserves line movement history, and keeps
+  provider outages from breaking already-generated predictions.
+  The client retries transient 429/5xx/connect/read failures; if the
+  event list is unavailable, ingestion returns a failure report with zero
+  rows instead of aborting the daily picks refresh.

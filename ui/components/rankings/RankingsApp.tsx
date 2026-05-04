@@ -4,28 +4,24 @@ import { Check, ChevronDown, ExternalLink, Plus } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
-  PICKS,
-  TEAMS,
   headshotUrl,
   type FactorGroup,
   type FactorItem,
   type Pick,
-} from "@/lib/mock-data";
+} from "@/lib/pick-view";
+import { boardSortLabel, sortPicksForBoard, type SortKey } from "@/lib/ranking-sort";
 import { Ticket } from "./Ticket";
 
-type SortKey = "prob" | "ehr" | "edge";
 type FactorSignal = {
   group: string;
   item: FactorItem;
 };
 
-function parseEdge(e: string): number {
-  return parseFloat(e.replace("+", ""));
-}
-
 type RankingsProps = {
   picks?: readonly Pick[];
 };
+
+const EMPTY_PICKS: readonly Pick[] = [];
 
 function fallbackFactors(p: Pick): FactorGroup[] {
   return [
@@ -52,6 +48,7 @@ function primaryFactor(group: FactorGroup): FactorItem | null {
     BAT: ["BRL", "EV90", "EHR"],
     MATCH: ["SP HR/9", "SP BRL", "HAND"],
     "PARK/WX": ["PARK", "WIND CF", "TEMP"],
+    MARKET: ["EDGE", "BOOK", "FAIR", "EV"],
     MODEL: [],
   };
   const labels = preferred[group.label] ?? [];
@@ -63,7 +60,7 @@ function primaryFactor(group: FactorGroup): FactorItem | null {
 }
 
 function summarySignals(groups: FactorGroup[]): FactorSignal[] {
-  const preferredOrder = ["BAT", "MATCH", "PARK/WX", "MODEL"];
+  const preferredOrder = ["MARKET", "BAT", "MATCH", "PARK/WX"];
   const orderedGroups = [
     ...preferredOrder
       .map((label) => groups.find((group) => group.label === label))
@@ -82,7 +79,7 @@ function signalGroupLabel(label: string): string {
 }
 
 export function RankingsApp({ picks }: RankingsProps = {}) {
-  const source: readonly Pick[] = picks && picks.length > 0 ? picks : PICKS;
+  const source: readonly Pick[] = picks ?? EMPTY_PICKS;
 
   const [sort, setSort] = useState<SortKey>("prob");
   const [minProb, setMinProb] = useState<number>(3.0);
@@ -96,29 +93,19 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
 
   const filtered: Pick[] = useMemo(() => {
-    const rows = source.filter((p) => p.prob >= minProb && (team === "" || p.team === team));
-    const sorted = [...rows].sort((a, b) => {
-      if (sort === "prob") return b.prob - a.prob;
-      if (sort === "ehr") return b.ehr - a.ehr;
-      return parseEdge(b.edge) - parseEdge(a.edge);
+    return sortPicksForBoard(source, {
+      sort,
+      minProb,
+      team,
+      limit,
+      onePerGame,
     });
-    // "One per game": park + wind are shared across every batter in a
-    // game, so top-N often clusters in the best 1-2 parks. When enabled,
-    // keep only the highest-prob pick for each game_pk so the list
-    // diversifies across the slate (prop-bet friendlier).
-    if (onePerGame) {
-      const seen = new Set<number>();
-      const diversified: Pick[] = [];
-      for (const p of sorted) {
-        const key = p.gamePk ?? -1;
-        if (key === -1 || seen.has(key)) continue;
-        seen.add(key);
-        diversified.push(p);
-      }
-      return diversified.slice(0, limit);
-    }
-    return sorted.slice(0, limit);
   }, [source, sort, minProb, team, limit, onePerGame]);
+
+  const teamOptions = useMemo(
+    () => [...new Set(source.map((p) => p.team).filter((t) => t && t !== "—"))].sort(),
+    [source],
+  );
 
   const parlayLegs = source.filter((p) => parlay.includes(p.id));
   const combinedP = parlayLegs.reduce((acc, p) => acc * (p.prob / 100), 1);
@@ -213,7 +200,7 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
         </div>
 
         <div className="filters">
-          <div className="f-group">
+          <div className="f-group f-group-sort">
             <label className="f-label">SORT</label>
             <div className="seg">
               {(["prob", "ehr", "edge"] as const).map((k) => (
@@ -221,9 +208,11 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                   key={k}
                   type="button"
                   className={`seg-btn ${sort === k ? "active" : ""}`}
+                  aria-pressed={sort === k}
+                  data-sort-key={k}
                   onClick={() => setSort(k)}
                 >
-                  {k === "prob" ? "Probability" : k === "ehr" ? "E[HR]" : "Model lift"}
+                  {boardSortLabel(k)}
                 </button>
               ))}
             </div>
@@ -253,8 +242,8 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
               onChange={(e) => setTeam(e.target.value)}
               aria-label="Team filter"
             >
-              <option value="">ALL · 30 TEAMS</option>
-              {[...TEAMS].sort().map((t) => (
+              <option value="">ALL TEAMS</option>
+              {teamOptions.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
@@ -315,6 +304,20 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
           </div>
         </div>
 
+        <div className="mobile-sort-status" aria-live="polite">
+          <span>Sorted by</span>
+          <b>{boardSortLabel(sort)}</b>
+          {filtered[0] && (
+            <span>
+              Top {filtered[0].last} · {sort === "prob"
+                ? `${filtered[0].prob.toFixed(1)}%`
+                : sort === "ehr"
+                  ? filtered[0].ehr.toFixed(3)
+                  : filtered[0].edge}
+            </span>
+          )}
+        </div>
+
         <div className="app-body">
           <div className="rankings">
             <div className="rk-head">
@@ -330,8 +333,17 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                 <div className="parlay-empty" style={{ padding: "80px 20px" }}>
                   <div className="pe-icon">◆</div>
                   <div className="pe-text">
-                    No picks match your filters.<br />
-                    Loosen the minimum, or change the team.
+                    {source.length === 0 ? (
+                      <>
+                        No live picks loaded.<br />
+                        Run the refresh pipeline or check the database connection.
+                      </>
+                    ) : (
+                      <>
+                        No picks match your filters.<br />
+                        Loosen the minimum, or change the team.
+                      </>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -397,8 +409,15 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                         </div>
                         <div className="rk-prob-sub">
                           <span>E {p.ehr.toFixed(3)}</span>
-                          <span className={edgeNeg ? "neg" : "pos"}>{p.edge}</span>
+                          <span className={edgeNeg ? "neg" : "pos"}>{p.edgeLabel ?? "LIFT"} {p.edge}</span>
                         </div>
+                        {p.bookOdds && p.fairOdds && (
+                          <div className="rk-odds-sub">
+                            <span>{p.bookOdds}</span>
+                            <span>fair {p.fairOdds}</span>
+                            {p.ev && <span className={p.ev.startsWith("-") ? "neg" : "pos"}>EV {p.ev}</span>}
+                          </div>
+                        )}
                       </div>
                       <div className="rk-actions">
                         <button

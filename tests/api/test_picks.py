@@ -41,6 +41,10 @@ def _seed_predictions(game_date: date, model_version: str) -> None:
     with sf() as s:
         # Clean only this synthetic game; never wipe the real slate date.
         s.execute(text("DELETE FROM predictions WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
+        s.execute(
+            text("DELETE FROM projected_lineups WHERE game_pk = :gp"),
+            {"gp": _TEST_GAME_PK},
+        )
         # Park + schedule for FK context
         s.execute(
             text(
@@ -93,6 +97,15 @@ def _seed_predictions(game_date: date, model_version: str) -> None:
             )
         # 5 predictions with descending prob
         for i, pid in enumerate(_TEST_BATTER_IDS):
+            s.execute(
+                text(
+                    "INSERT INTO projected_lineups "
+                    "(game_pk, team_id, batter_id, batting_order, is_confirmed) "
+                    "VALUES (:gp, 9001, :b, :ord, true) "
+                    "ON CONFLICT DO NOTHING"
+                ),
+                {"gp": _TEST_GAME_PK, "b": pid, "ord": i + 1},
+            )
             s.execute(
                 text(
                     "INSERT INTO predictions "
@@ -153,10 +166,49 @@ def _seed_predictions(game_date: date, model_version: str) -> None:
     _flush_picks_cache()
 
 
+def _seed_odds(game_date: date) -> None:
+    sf = _get_session_factory()
+    with sf() as s:
+        s.execute(
+            text(
+                "INSERT INTO odds_snapshots "
+                "(snapshot_key, provider, sport_key, event_id, game_pk, game_date, commence_time, "
+                " home_team, away_team, bookmaker_key, bookmaker_title, market_key, outcome_name, "
+                " player_name, batter_id, price_american, point, implied_probability, "
+                " no_vig_probability, market_last_update, fetched_at, raw_outcome) "
+                "VALUES "
+                "('test-odds-a', 'prop_line', 'baseball_mlb', 'evt_test', :gp, :d, :ts, "
+                " 'Test Home', 'Test Away', 'draftkings', 'DraftKings', 'batter_home_runs', "
+                " 'Over', 'Test Batter A', 700001, 700, 0.5, 0.125, 0.121, :lu, :fa, "
+                " '{}'::jsonb), "
+                "('test-odds-a-under', 'prop_line', 'baseball_mlb', 'evt_test', :gp, :d, :ts, "
+                " 'Test Home', 'Test Away', 'draftkings', 'DraftKings', 'batter_home_runs', "
+                " 'Under', 'Test Batter A', 700001, -1000, 0.5, 0.90909, 0.879, :lu, :fa, "
+                " '{}'::jsonb) "
+                "ON CONFLICT (snapshot_key) DO UPDATE SET "
+                "price_american = EXCLUDED.price_american, "
+                "implied_probability = EXCLUDED.implied_probability, "
+                "no_vig_probability = EXCLUDED.no_vig_probability, "
+                "fetched_at = EXCLUDED.fetched_at"
+            ),
+            {
+                "gp": _TEST_GAME_PK,
+                "d": game_date,
+                "ts": datetime(game_date.year, game_date.month, game_date.day, 23, 0, tzinfo=UTC),
+                "lu": datetime(game_date.year, game_date.month, game_date.day, 16, 0, tzinfo=UTC),
+                "fa": datetime(game_date.year, game_date.month, game_date.day, 16, 2, tzinfo=UTC),
+            },
+        )
+        s.commit()
+    _flush_picks_cache()
+
+
 def _cleanup_predictions() -> None:
     sf = _get_session_factory()
     with sf() as s:
+        s.execute(text("DELETE FROM odds_snapshots WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         s.execute(text("DELETE FROM predictions WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
+        s.execute(text("DELETE FROM projected_lineups WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         s.execute(text("DELETE FROM daily_schedule WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         s.commit()
     _flush_picks_cache()
@@ -183,6 +235,7 @@ async def test_picks_today_returns_sorted_by_prob(client) -> None:
         # Enrichment
         first = top5[0]
         assert first["batter_name"] == "Test Batter A"
+        assert first["team_abbr"] == "TST"
         assert first["pitcher_name"] == "Test Pitcher"
         assert first["pitcher_throws"] == "R"
         assert first["park_name"] == "Test Park"
@@ -234,9 +287,39 @@ async def test_picks_today_team_filter(client) -> None:
         r = await client.get("/picks/today?team=TST")
         assert r.status_code == 200
         body = r.json()
-        # Our seeded game has home team TST; should return our 5 seeds at minimum.
+        # Our seeded batters are in the TST lineup.
         our_rows = [b for b in body if b["batter_id"] in _TEST_BATTER_IDS]
         assert len(our_rows) == 5
+        assert {row["team_abbr"] for row in our_rows} == {"TST"}
+
+        r = await client.get("/picks/today?team=VIS")
+        assert r.status_code == 200
+        body = r.json()
+        our_rows = [b for b in body if b["batter_id"] in _TEST_BATTER_IDS]
+        assert our_rows == []
+    finally:
+        _cleanup_predictions()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_picks_today_includes_latest_best_odds_edge_and_ev(client) -> None:
+    today = current_mlb_date()
+    _seed_predictions(today, _active_model_version())
+    _seed_odds(today)
+    try:
+        r = await client.get("/picks/today?limit=10")
+        assert r.status_code == 200, r.text
+        pick = next(row for row in r.json() if row["batter_id"] == 700001)
+
+        assert pick["odds_bookmaker"] == "DraftKings"
+        assert pick["odds_price_american"] == 700
+        assert pick["market_implied_probability"] == pytest.approx(0.125)
+        assert pick["market_no_vig_probability"] == pytest.approx(0.121)
+        assert pick["model_edge"] == pytest.approx(pick["prob_at_least_one_hr"] - 0.125)
+        assert pick["expected_value_per_unit"] == pytest.approx(
+            pick["prob_at_least_one_hr"] * 7 - (1 - pick["prob_at_least_one_hr"])
+        )
     finally:
         _cleanup_predictions()
 

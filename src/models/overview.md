@@ -14,6 +14,9 @@ Scope boundary: **no API** (Phase 6), **no daily inference pipeline** (Phase 6+)
 - **`calibrate.py`** — isotonic post-hoc calibrator. `fit_calibrator(val_probs, val_labels) -> IsotonicRegression`, `apply_calibrator(cal, raw_probs) -> ndarray`, `save_calibrator(cal, version) -> Path`, `load_calibrator(version) -> IsotonicRegression`. Calibrator lives at `src/models/registry/v{version}/calibrator.joblib` — co-located with the model to prevent version-mixing bugs.
 - **`per_game_hr.py`** — per-game composition of per-matchup probabilities. `per_game_hr_distribution(GameMatchupInputs) -> GameHRDistribution` composes the starter-matchup probability (and optionally a bullpen-matchup probability) into a game-level distribution via the independent-matchups formula. Phase 3's label `hr_on_pa` is per-(batter, pitcher, game), so the model's calibrated output is already a per-matchup game-level probability — no PA-level compounding is applied. Replaces the original `pa_sequence.py` (see `phases/phase5/NOTES.md` "Rollup semantic bug" for the fix narrative).
 - **`rollup.py`** — exact Poisson-binomial PMF + per-game distribution. `poisson_binomial_pmf(probs) -> list[float]` via direct convolution (O(n²), near-instant for the small inputs we feed it); `per_game_probability(probs) -> GameHRDistribution` exposes `prob_at_least_one`, `prob_at_least_two`, `prob_at_least_three`, `expected_hrs`, and `pmf`. The math is unchanged from the original Phase 5 implementation — it's correct for combining any independent-event probabilities; `per_game_hr.py` now feeds it 1–2 per-matchup probabilities instead of the originally-incorrect 4 per-PA copies.
+- **`odds.py`** — pure sportsbook math helpers: American odds to implied
+  probability, fair American odds, model-vs-market edge, and one-unit EV.
+  Used by `/picks/today` after PropLine snapshots are persisted.
 
 ## Public interface
 
@@ -27,6 +30,7 @@ from src.models.train import TrainingConfig, TrainingResult, train_baseline
 from src.models.calibrate import fit_calibrator, apply_calibrator, save_calibrator, load_calibrator
 from src.models.per_game_hr import GameMatchupInputs, per_game_hr_distribution
 from src.models.rollup import per_game_probability, poisson_binomial_pmf, GameHRDistribution
+from src.models.odds import american_to_implied_probability, expected_value_per_unit
 ```
 
 `LoadedModel` exposes `.model` (XGBoost Booster), `.feature_schema` (ordered list of 118 production feature names), `.training_metadata` (git_sha, data_hash, config, training_range), `.metrics`.

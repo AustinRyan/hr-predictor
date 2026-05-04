@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Pick } from "@/lib/mock-data";
+import type { Pick } from "@/lib/pick-view";
 
 type Props = {
   legs: Pick[];

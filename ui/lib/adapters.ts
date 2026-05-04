@@ -9,7 +9,7 @@
  * this prediction.
  */
 
-import type { CtxChip, FactorGroup, FactorItem, Pick as DesignPick } from "./mock-data";
+import type { CtxChip, FactorGroup, FactorItem, Pick as DesignPick } from "./pick-view";
 import type { FeatureContribution, PickSummary } from "./types";
 
 function splitName(
@@ -43,11 +43,48 @@ function formatTime(utc: string | null): string {
   }
 }
 
-function formatEdge(expectedHrs: number | null, prob: number): string {
-  // No book odds in v1 — "edge" is a cosmetic delta vs the ~4.65% base rate.
-  const delta = expectedHrs !== null ? prob * 100 - 4.65 : prob * 100 - 4.65;
+function formatEdge(p: PickSummary): string {
+  const delta =
+    p.model_edge !== null
+      ? p.model_edge * 100
+      : p.expected_hrs !== null
+        ? p.prob_at_least_one_hr * 100 - 4.65
+        : p.prob_at_least_one_hr * 100 - 4.65;
   const sign = delta >= 0 ? "+" : "";
   return `${sign}${delta.toFixed(1)}`;
+}
+
+function formatAmerican(value: number | null): string | null {
+  if (value === null) return null;
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value}`;
+}
+
+function fairAmericanFromProbability(probability: number): string {
+  if (probability <= 0 || probability >= 1) return "—";
+  if (probability >= 0.5) {
+    return `${Math.round((-100 * probability) / (1 - probability))}`;
+  }
+  return `+${Math.round(100 * (1 - probability) / probability)}`;
+}
+
+function formatEv(value: number | null): string | null {
+  if (value === null) return null;
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${(value * 100).toFixed(1)}%`;
+}
+
+function shortBookName(key: string | null, title: string | null): string | null {
+  const raw = (key || title || "").trim().toUpperCase();
+  if (!raw) return null;
+  const known: Record<string, string> = {
+    DRAFTKINGS: "DK",
+    FANDUEL: "FD",
+    BETMGM: "MGM",
+    BETRIVERS: "RIVERS",
+    CAESARS: "CZR",
+  };
+  return known[raw] ?? raw.slice(0, 7);
 }
 
 /**
@@ -188,7 +225,25 @@ function factorGroups(p: PickSummary): FactorGroup[] {
     p.batter_bats && p.pitcher_throws
       ? `${p.batter_bats.toUpperCase()}/${p.pitcher_throws.toUpperCase()}`
       : null;
+  const edgeStr = formatEdge(p);
+  const bookName = shortBookName(p.odds_bookmaker_key, p.odds_bookmaker);
+  const bookOdds = formatAmerican(p.odds_price_american);
+  const fairOdds = p.odds_price_american === null ? null : fairAmericanFromProbability(p.prob_at_least_one_hr);
+  const ev = formatEv(p.expected_value_per_unit);
+  const hasMarket = p.odds_price_american !== null && p.market_implied_probability !== null;
   const groups: FactorGroup[] = [
+    {
+      label: "MARKET",
+      items: hasMarket
+        ? [
+            factor("EDGE", `${edgeStr} pt`, edgeStr.startsWith("-") ? "down" : "up"),
+            factor("BOOK", bookOdds === null ? null : `${bookName ?? "BOOK"} ${bookOdds}`, "neutral"),
+            factor("FAIR", fairOdds, "neutral"),
+            factor("EV", ev, p.expected_value_per_unit !== null && p.expected_value_per_unit > 0 ? "up" : "down"),
+            factor("IMP", pct(p.market_implied_probability, 1), "neutral"),
+          ].filter((x): x is FactorItem => x !== null)
+        : [],
+    },
     {
       label: "BAT",
       items: [
@@ -226,8 +281,11 @@ function factorGroups(p: PickSummary): FactorGroup[] {
 
 export function adaptPickSummary(p: PickSummary): DesignPick {
   const { first, last } = splitName(p.batter_name, p.batter_id);
-  const edgeStr = formatEdge(p.expected_hrs, p.prob_at_least_one_hr);
+  const edgeStr = formatEdge(p);
   const edgeNeg = edgeStr.startsWith("-");
+  const hasMarket = p.odds_price_american !== null;
+  const bookName = shortBookName(p.odds_bookmaker_key, p.odds_bookmaker);
+  const bookOdds = formatAmerican(p.odds_price_american);
   return {
     id: p.batter_id,
     first,
@@ -245,6 +303,10 @@ export function adaptPickSummary(p: PickSummary): DesignPick {
     prob: p.prob_at_least_one_hr * 100,
     ehr: p.expected_hrs ?? 0,
     edge: edgeStr,
+    edgeLabel: hasMarket ? "EDGE" : "LIFT",
+    bookOdds: hasMarket && bookOdds ? `${bookName ?? "BOOK"} ${bookOdds}` : undefined,
+    fairOdds: hasMarket ? fairAmericanFromProbability(p.prob_at_least_one_hr) : undefined,
+    ev: hasMarket ? formatEv(p.expected_value_per_unit) ?? undefined : undefined,
     neg: edgeNeg || undefined,
     ctx: ctxFromStats(p),
     factors: factorGroups(p),

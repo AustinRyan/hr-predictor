@@ -22,7 +22,11 @@ ui/
 │   └── rankings/
 │       └── RankingsApp.tsx  # client component — filters + evidence-led board + parlay rail
 ├── lib/
-│   └── mock-data.ts      # typed PICKS/SCOREBOARD/SLATE_CARDS/TICKER (Stage 4 replaces w/ real API)
+│   ├── pick-view.ts      # display types + MLB headshot helper used by real picks
+│   ├── ranking-sort.ts   # shared leaderboard filtering/sorting helpers
+│   └── mock-data.ts      # legacy design fixtures only; not used as runtime fallback
+├── scripts/
+│   └── verify-ranking-sort.mjs  # tiny Node check for board sort behavior
 └── remotion/             # renderable promotional video compositions
 ```
 
@@ -30,13 +34,22 @@ ui/
 All tokens live as CSS custom properties in `globals.css` under `:root` and `[data-accent="..."]` / `[data-intensity="..."]` variants. The runtime tweaks panel (Stage 3+) flips `data-accent` on `<html>` to retheme the whole surface. Hoisting these into `tailwind.config` would break that mechanism.
 
 ## Stage progress
-- **Stage 1 (now):** scaffold + static landing w/ mock data, no scroll animation yet.
+- **Stage 1:** scaffold + static landing from the original design bundle.
 - **Stage 2:** scroll-linked signature arc, chyrons, loading ritual, HR easter egg.
 - **Stage 3:** parlay lock/ticket flip + share-as-image.
 - **Stage 4:** wire rankings + hero #1 to live predictions. The app now
   queries Neon directly from server code, filters to one active model version
-  for the latest slate, and uses MLB Eastern date for "today".
+  for the latest slate, uses MLB Eastern date for "today", and displays
+  real PropLine odds edge when `odds_snapshots` has matching rows. The
+  visible homepage no longer falls back to mock picks; query failures or
+  empty slates render explicit empty states.
 - **Stage 5:** `/player/[id]`, `/matchup/[gamePk]/[batterId]`, `/model` pages in same aesthetic.
+- **Mobile hardening:** coarse-pointer/small-screen devices render a compact
+  static arc card instead of the full scroll-physics arc. Leaderboard sort
+  behavior lives in `lib/ranking-sort.ts` and is covered by
+  `npm run test:ranking-sort`; mobile rows keep visible rank pills so sort
+  changes are obvious. Team filters use batter-team abbreviations inferred
+  from lineup rows, not just home/away game abbreviations.
 
 ## Conventions
 - Server components by default. `'use client'` only when interactivity (refs/state) is required.
@@ -48,6 +61,12 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
   and `MODEL` factor set inside the expandable evidence drawer. Keep new
   leaderboard data in `PickSummary -> adapter -> Pick.factors`; avoid adding
   more standalone columns unless the factor needs to drive sorting.
+- Real betting edge is `PickSummary.model_edge` from persisted odds
+  snapshots. When odds are missing, the adapter falls back to the old
+  model-vs-baseline lift so the UI remains populated.
+- Mobile filter controls should remain touch-sized (44px minimum) and the
+  `MODEL LIFT` sort must continue using `sortPicksForBoard` rather than
+  duplicating ad hoc comparator logic in the component.
 - MLB headshots via `https://img.mlbstatic.com/mlb-photos/image/upload/w_426,q_auto/v1/people/{id}/headshot/67/current`; use native `<img>` with `eslint-disable-next-line @next/next/no-img-element` (not `<Image>`) so duotone CSS filters compose cleanly.
 
 ## Commands
@@ -56,6 +75,7 @@ cd ui
 npm run dev      # :3000
 npm run build    # prod build
 npm run lint     # eslint
+npm run test:ranking-sort
 npm run remotion # Remotion Studio on :3001
 npm run render:promo
 ```

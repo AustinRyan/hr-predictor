@@ -56,7 +56,8 @@ Ranked HR predictions for today's games. 5-minute Redis cache.
 Query params:
 - `limit: int = 20` (1–200)
 - `min_prob: float = 0.0` (0.0–1.0)
-- `team: str | None` — three-letter abbreviation
+- `team: str | None` — three-letter batter-team abbreviation, inferred
+  from `projected_lineups` with `matchup_features.ctx_is_home` fallback
 - `sort: "prob" | "expected_hrs" = "prob"`
 
 ```
@@ -65,7 +66,7 @@ $ curl -s 'http://127.0.0.1:8765/picks/today?limit=5'
   {
     "batter_id": 657656,
     "batter_name": "ramón laureano",
-    "team_abbr": null,
+    "team_abbr": "COL",
     "game_pk": 824368,
     "game_date": "2026-04-23",
     "game_start_utc": "2026-04-23T19:10:00Z",
@@ -75,6 +76,12 @@ $ curl -s 'http://127.0.0.1:8765/picks/today?limit=5'
     "pitcher_throws": null,
     "prob_at_least_one_hr": 0.1025,
     "expected_hrs": 0.1025,
+    "odds_bookmaker": "DraftKings",
+    "odds_price_american": 700,
+    "market_implied_probability": 0.125,
+    "market_no_vig_probability": 0.121,
+    "model_edge": -0.0225,
+    "expected_value_per_unit": -0.18,
     "pitcher_hr_per_9_season": 1.12,
     "pitcher_barrel_pct_allowed_season": 0.08,
     "batting_order": 2,
@@ -191,6 +198,10 @@ Consistent `{error: str, detail?: str}` body:
 - `/picks/today`, `/player/{id}`, and `/matchup/*` only expose rows for
   the model version loaded into app state. Historical/stale prediction
   versions can remain in the DB without leaking into current responses.
+- `/picks/today` joins the latest best available PropLine
+  `batter_home_runs` Over snapshot per `(game_pk, batter_id)` when odds
+  have been ingested. Odds fields are nullable so stale/missing provider
+  data does not hide predictions.
 - Cache keys include the current production model version.
 - Redis failures degrade gracefully.
 - `/health` returns 503 (not 200) when Postgres or Redis is down.

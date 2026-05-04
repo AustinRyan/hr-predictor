@@ -30,7 +30,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 _state: dict[str, Any] = {
     "status": "idle",  # idle | running | done | error
-    "phase": None,  # ingest | inference | flush_cache | done
+    "phase": None,  # ingest | features | inference | odds | flush_cache | done
     "started_at": None,
     "finished_at": None,
     "target_date": None,
@@ -114,8 +114,10 @@ def _flush_picks_cache() -> None:
 
 def _run_pipeline(target_date: date) -> None:
     """Invoke ingest → feature build → inference. Runs in a worker thread."""
+    from src.core.config import get_settings
     from src.features.builder import build_features_for_date
     from src.ingestion.daily_runner import run_daily
+    from src.ingestion.prop_line_odds import persist_mlb_batter_hr_odds
     from src.models.inference import generate_predictions_for_date
 
     try:
@@ -164,7 +166,33 @@ def _run_pipeline(target_date: date) -> None:
         _log.info("refresh: running inference", extra={"date": target_date.isoformat()})
         rows = generate_predictions_for_date(target_date)
 
-        _set_state(phase="flush_cache", rows_written=int(rows))
+        odds_report: dict[str, Any] | None = None
+        _set_state(phase="odds", rows_written=int(rows))
+        if get_settings().prop_line_api_key:
+            try:
+                _log.info(
+                    "refresh: fetching PropLine odds", extra={"date": target_date.isoformat()}
+                )
+                odds = persist_mlb_batter_hr_odds(target_date)
+                odds_report = {
+                    "odds_events_seen": odds.events_seen,
+                    "odds_events_matched": odds.events_matched,
+                    "odds_rows_seen": odds.rows_seen,
+                    "odds_rows_written": odds.rows_written,
+                    "odds_unmatched_players": odds.unmatched_players[:25],
+                    "odds_failures": odds.failures,
+                }
+            except Exception as exc:  # noqa: BLE001
+                _log.warning("refresh: PropLine odds failed", exc_info=True)
+                odds_report = {"odds_failures": [str(exc)]}
+        else:
+            odds_report = {"odds_skipped": "PROP_LINE_API_KEY not configured"}
+
+        _set_state(
+            phase="flush_cache",
+            rows_written=int(rows),
+            report={**(_state.get("report") or {}), **odds_report},
+        )
         _flush_picks_cache()
 
         _set_state(status="done", phase="done", finished_at=_now_iso())

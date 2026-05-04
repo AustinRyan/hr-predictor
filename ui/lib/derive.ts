@@ -5,7 +5,7 @@
  */
 
 import type { PickSummary, ModelMetricsResponse } from "./types";
-import type { ScoreboardGame, SlateCard } from "./mock-data";
+import type { ScoreboardGame, SlateCard } from "./pick-view";
 
 function fmtTime(utc: string | null): string {
   if (!utc) return "TBD";

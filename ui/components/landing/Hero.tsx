@@ -1,5 +1,5 @@
-import { PICKS, TICKER, headshotUrl, type Pick } from "@/lib/mock-data";
 import type { HeroStats } from "@/lib/adapters";
+import { headshotUrl, type Pick } from "@/lib/pick-view";
 
 function formatDate(): string {
   return new Date()
@@ -30,14 +30,14 @@ type Props = {
 };
 
 export function Hero({ picks, topStats, ticker, gameCount, modelVersion, brier }: Props = {}) {
-  const source = picks ?? PICKS;
-  const topPick = source[0] ?? PICKS[0];
-  const tickerItems = ticker && ticker.length > 0 ? ticker : TICKER;
+  const source = picks ?? [];
+  const topPick = source[0];
+  const tickerItems = ticker && ticker.length > 0 ? ticker : ["NO LIVE PICKS LOADED"];
   // Double the ticker so the CSS keyframe (-50%) loops seamlessly.
   const tickerLoop = [...tickerItems, ...tickerItems];
-  const modelLabel = modelVersion ? modelVersion.toUpperCase() : "MODEL v4.2.1";
-  const brierLabel = brier != null ? `CALIBRATED TO ${brier.toFixed(4)} BRIER` : "CALIBRATED TO .0043 BRIER";
-  const slateLabel = gameCount != null ? `${gameCount} GAMES` : "15 SLATE";
+  const modelLabel = modelVersion ? modelVersion.toUpperCase() : "MODEL UNAVAILABLE";
+  const brierLabel = brier != null ? `CALIBRATED TO ${brier.toFixed(4)} BRIER` : "CALIBRATION UNAVAILABLE";
+  const slateLabel = gameCount != null ? `${gameCount} GAMES` : "NO SLATE";
 
   return (
     <section className="hero" id="top">
@@ -80,48 +80,50 @@ export function Hero({ picks, topStats, ticker, gameCount, modelVersion, brier }
         <aside className="pick-card" aria-label="Top pick">
           <div className="pick-card-head">
             <span className="pick-rank">NO. 01</span>
-            <span className="pick-tag">LOCK OF THE DAY</span>
+            <span className="pick-tag">{topPick ? "LOCK OF THE DAY" : "AWAITING DATA"}</span>
           </div>
 
           <div className="pick-portrait">
-            <div className="pick-live">PROJECTING NEXT AB…</div>
+            <div className="pick-live">{topPick ? "PROJECTING NEXT AB…" : "NO PICKS LOADED"}</div>
             <div className="portrait-grid" />
-            <div className="portrait-img">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={headshotUrl(topPick.id)} alt="" />
-            </div>
-            {topPick.num > 0 && <div className="portrait-number">{topPick.num}</div>}
+            {topPick && (
+              <div className="portrait-img">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={headshotUrl(topPick.id)} alt="" />
+              </div>
+            )}
+            {topPick && topPick.num > 0 && <div className="portrait-number">{topPick.num}</div>}
             <div className="portrait-noise" />
           </div>
 
           <div className="pick-identity">
             <div className="player-name">
-              <span className="pn-first">{topPick.first}</span>
-              <span className="pn-last">{topPick.last}</span>
+              <span className="pn-first">{topPick?.first ?? "TODAY'S"}</span>
+              <span className="pn-last">{topPick?.last ?? "BOARD"}</span>
             </div>
             <div className="player-meta">
-              <span className="team-chip">{topPick.team}</span>
+              <span className="team-chip">{topPick?.team ?? "LIVE"}</span>
               <span>·</span>
-              <span>{topPick.pos}</span>
+              <span>{topPick?.pos ?? "MODEL"}</span>
               <span>·</span>
-              <span>BATS {topPick.hand}</span>
+              <span>{topPick ? `BATS ${topPick.hand}` : "REAL DATA ONLY"}</span>
             </div>
           </div>
 
           <div className="pick-prob">
             <div className="prob-label">P(HOME RUN)</div>
             <div className="prob-big">
-              {topPick.prob.toFixed(1)}
-              <span className="pct">%</span>
+              {topPick ? topPick.prob.toFixed(1) : "--"}
+              {topPick && <span className="pct">%</span>}
             </div>
             <div
               className="prob-bar"
               role="progressbar"
-              aria-valuenow={topPick.prob}
+              aria-valuenow={topPick?.prob ?? 0}
               aria-valuemin={0}
               aria-valuemax={100}
             >
-              <div className="prob-bar-fill" style={{ ["--w" as string]: `${topPick.prob}%` }} />
+              <div className="prob-bar-fill" style={{ ["--w" as string]: `${topPick?.prob ?? 0}%` }} />
               <div className="prob-bar-ticks" aria-hidden="true">
                 <span style={{ ["--x" as string]: "25%" }} />
                 <span style={{ ["--x" as string]: "50%" }} />
@@ -129,18 +131,24 @@ export function Hero({ picks, topStats, ticker, gameCount, modelVersion, brier }
               </div>
             </div>
             <div className="prob-sub">
-              <span>vs <b>{topPick.vs}</b></span>
-              <span>·</span>
-              <span>{topPick.park}</span>
-              <span>·</span>
-              <span>{topPick.time}</span>
+              {topPick ? (
+                <>
+                  <span>vs <b>{topPick.vs}</b></span>
+                  <span>·</span>
+                  <span>{topPick.park}</span>
+                  <span>·</span>
+                  <span>{topPick.time}</span>
+                </>
+              ) : (
+                <span>No model output found for the current slate.</span>
+              )}
             </div>
           </div>
 
           <div className="pick-stats">
             <div className="ps">
               <div className="ps-k">E[HR]</div>
-              <div className="ps-v">{topPick.ehr.toFixed(3)}</div>
+              <div className="ps-v">{topPick ? topPick.ehr.toFixed(3) : "—"}</div>
             </div>
             <div className="ps">
               <div className="ps-k">BARREL%</div>
