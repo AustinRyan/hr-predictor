@@ -23,7 +23,10 @@ ui/
 │       └── RankingsApp.tsx  # client component — filters + evidence-led board + parlay rail
 ├── lib/
 │   ├── pick-view.ts      # display types + MLB headshot helper used by real picks
+│   ├── ranking-sort.ts   # shared leaderboard filtering/sorting helpers
 │   └── mock-data.ts      # legacy design fixtures only; not used as runtime fallback
+├── scripts/
+│   └── verify-ranking-sort.mjs  # tiny Node check for board sort behavior
 └── remotion/             # renderable promotional video compositions
 ```
 
@@ -41,6 +44,11 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
   visible homepage no longer falls back to mock picks; query failures or
   empty slates render explicit empty states.
 - **Stage 5:** `/player/[id]`, `/matchup/[gamePk]/[batterId]`, `/model` pages in same aesthetic.
+- **Mobile hardening:** coarse-pointer/small-screen devices render a compact
+  static arc card instead of the full scroll-physics arc. Leaderboard sort
+  behavior lives in `lib/ranking-sort.ts` and is covered by
+  `npm run test:ranking-sort`; mobile rows keep visible rank pills so sort
+  changes are obvious.
 
 ## Conventions
 - Server components by default. `'use client'` only when interactivity (refs/state) is required.
@@ -55,6 +63,9 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
 - Real betting edge is `PickSummary.model_edge` from persisted odds
   snapshots. When odds are missing, the adapter falls back to the old
   model-vs-baseline lift so the UI remains populated.
+- Mobile filter controls should remain touch-sized (44px minimum) and the
+  `MODEL LIFT` sort must continue using `sortPicksForBoard` rather than
+  duplicating ad hoc comparator logic in the component.
 - MLB headshots via `https://img.mlbstatic.com/mlb-photos/image/upload/w_426,q_auto/v1/people/{id}/headshot/67/current`; use native `<img>` with `eslint-disable-next-line @next/next/no-img-element` (not `<Image>`) so duotone CSS filters compose cleanly.
 
 ## Commands
@@ -63,6 +74,7 @@ cd ui
 npm run dev      # :3000
 npm run build    # prod build
 npm run lint     # eslint
+npm run test:ranking-sort
 npm run remotion # Remotion Studio on :3001
 npm run render:promo
 ```

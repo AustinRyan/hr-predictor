@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type DamageEvent = { at: number; k: string; v: string };
 const DAMAGE_DATA: readonly DamageEvent[] = [
@@ -37,7 +37,64 @@ function physicsWarp(p: number): number {
   return 0.5 + 0.5 * Math.pow(t, 1.6);
 }
 
+function MobileArcPanel() {
+  return (
+    <div className="arc-mobile-panel" aria-label="Home run arc summary">
+      <div className="arc-mobile-visual" aria-hidden="true">
+        <svg viewBox="0 0 360 240" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id="mobileArcGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity=".2" />
+              <stop offset="55%" stopColor="var(--accent)" stopOpacity=".85" />
+              <stop offset="100%" stopColor="var(--accent-2)" stopOpacity=".95" />
+            </linearGradient>
+            <radialGradient id="mobileBallGrad" cx="35%" cy="35%">
+              <stop offset="0%" stopColor="#fff" />
+              <stop offset="50%" stopColor="#f4e8d6" />
+              <stop offset="100%" stopColor="#b79c77" />
+            </radialGradient>
+          </defs>
+          <path d="M 20 205 L 340 205" stroke="rgba(255,255,255,.14)" strokeDasharray="5 8" />
+          <path
+            d="M 32 194 Q 172 -42 326 100"
+            fill="none"
+            stroke="url(#mobileArcGrad)"
+            strokeWidth="3"
+            strokeLinecap="round"
+          />
+          <g opacity=".36">
+            <circle cx="108" cy="110" r="13" fill="#f4e8d6" />
+            <circle cx="172" cy="56" r="10" fill="#f4e8d6" />
+            <circle cx="236" cy="62" r="7" fill="#f4e8d6" />
+          </g>
+          <g transform="translate(306 112) rotate(18)">
+            <circle r="20" fill="url(#mobileBallGrad)" stroke="rgba(138,118,86,.7)" />
+            <path d="M -14 -5 Q 0 -17 14 -5" stroke="#c8302a" strokeWidth="2" fill="none" strokeLinecap="round" />
+            <path d="M -14 5 Q 0 17 14 5" stroke="#c8302a" strokeWidth="2" fill="none" strokeLinecap="round" />
+          </g>
+        </svg>
+      </div>
+
+      <div className="arc-mobile-copy">
+        <div className="arc-mobile-k">Flight read</div>
+        <div className="arc-mobile-v">14.8<span>%</span></div>
+        <div className="arc-mobile-sub">Final P(HR) · variable summary</div>
+      </div>
+
+      <div className="arc-mobile-factors">
+        {DAMAGE_DATA.map((item) => (
+          <div className="arc-mobile-factor" key={item.k}>
+            <span>{item.k}</span>
+            <b>{item.v}</b>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function Arc() {
+  const [compactArc, setCompactArc] = useState(false);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const pathRef = useRef<SVGPathElement | null>(null);
   const ballRef = useRef<SVGGElement | null>(null);
@@ -54,6 +111,15 @@ export function Arc() {
   const finaleValRef = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
+    const query = window.matchMedia("(max-width: 760px), (pointer: coarse)");
+    const sync = (): void => setCompactArc(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (compactArc) return;
     const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (prefersReduced) return;
 
@@ -305,7 +371,7 @@ export function Arc() {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
     };
-  }, []);
+  }, [compactArc]);
 
   return (
     <section className="arc" id="arc">
@@ -316,12 +382,14 @@ export function Arc() {
           TO <span className="accent">COLD PROBABILITY</span>.
         </h2>
         <p className="section-kicker">
-          Scroll. Watch the ball leave the bat — and every variable that turns it
-          into a number.
+          Watch the ball leave the bat — and every variable that turns it into a
+          number.
         </p>
       </div>
 
-      <div className="arc-stage" ref={stageRef}>
+      <MobileArcPanel />
+
+      {!compactArc && <div className="arc-stage" ref={stageRef}>
         <div className="arc-pin">
           <div className="contact-flash" ref={contactFlashRef} />
 
@@ -549,7 +617,7 @@ export function Arc() {
             <div className="fn-sub">RANK #1 · 412 HITTERS · TONIGHT</div>
           </div>
         </div>
-      </div>
+      </div>}
     </section>
   );
 }

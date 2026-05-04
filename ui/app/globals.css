@@ -668,6 +668,8 @@ img { max-width: 100%; display: block; }
   padding: 7px 12px;
   font-family: var(--f-display); font-weight: 700; font-size: 11px;
   letter-spacing: .14em; text-transform: uppercase; color: var(--ink-dim);
+  min-height: 34px;
+  touch-action: manipulation;
 }
 .seg-btn + .seg-btn, .seg.sm button + button { border-left: 1px solid var(--line); }
 .seg-btn:hover, .seg.sm button:hover { color: var(--ink); }
@@ -697,6 +699,7 @@ img { max-width: 100%; display: block; }
   letter-spacing: .14em; text-transform: uppercase;
   padding: 7px 12px; cursor: pointer;
 }
+.mobile-sort-status { display: none; }
 
 .app-body {
   display: grid; grid-template-columns: 1fr 320px;
@@ -1174,6 +1177,9 @@ img { max-width: 100%; display: block; }
   position: relative;
   height: 400vh;
 }
+.arc-mobile-panel {
+  display: none;
+}
 .arc-pin {
   position: sticky;
   top: 0;
@@ -1417,6 +1423,96 @@ img { max-width: 100%; display: block; }
   .batter { display: none; }
   .crowd-silhouette, .stadium-lights, .finale-number { display: none; }
   #arc-ball, #arc-path, #ball-shadow, #motion-streak { display: none; }
+}
+
+@media (max-width: 760px) {
+  .arc {
+    padding: 88px var(--gutter) 56px;
+  }
+  .arc-head {
+    margin-bottom: 24px;
+  }
+  .arc-stage {
+    display: none;
+  }
+  .arc-mobile-panel {
+    display: grid;
+    gap: 16px;
+    border: 1px solid var(--line-2);
+    background:
+      radial-gradient(circle at 80% 18%, rgba(var(--accent-rgb), .14), transparent 42%),
+      var(--panel);
+    padding: 16px;
+    box-shadow: 0 28px 90px -48px rgba(var(--accent-rgb), .55);
+  }
+  .arc-mobile-visual {
+    position: relative;
+    min-height: 220px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.08);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,0)),
+      #07080c;
+  }
+  .arc-mobile-visual svg {
+    width: 100%;
+    height: 100%;
+    min-height: 220px;
+    display: block;
+  }
+  .arc-mobile-copy {
+    display: grid;
+    gap: 4px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed rgba(255,255,255,.12);
+  }
+  .arc-mobile-k,
+  .arc-mobile-sub,
+  .arc-mobile-factor span {
+    font-family: var(--f-mono);
+    font-size: 10px;
+    letter-spacing: .16em;
+    color: var(--ink-mute);
+    text-transform: uppercase;
+  }
+  .arc-mobile-v {
+    font-family: var(--f-display);
+    font-size: clamp(76px, 24vw, 112px);
+    font-weight: 900;
+    line-height: .9;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .arc-mobile-v span {
+    font-size: .48em;
+    color: var(--ink-dim);
+    margin-left: 3px;
+  }
+  .arc-mobile-factors {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .arc-mobile-factor {
+    min-width: 0;
+    background: var(--bg-2);
+    padding: 12px 10px;
+  }
+  .arc-mobile-factor b {
+    display: block;
+    margin-top: 6px;
+    font-family: var(--f-display);
+    font-size: 22px;
+    line-height: 1;
+    color: var(--ink);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 /* ============ PARLAY TICKET (Stage 3) ============ */
@@ -1719,18 +1815,94 @@ img { max-width: 100%; display: block; }
 
 /* ============ MOBILE RANKINGS CARDS ============ */
 @media (max-width: 860px) {
+  .filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 12px;
+  }
+  .f-group {
+    min-width: 0;
+  }
+  .f-group-sort,
+  .filters .f-group:nth-child(2),
+  .filters .f-group:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+  .f-spacer {
+    display: none;
+  }
+  .seg {
+    width: 100%;
+  }
+  .seg-btn,
+  .seg.sm button {
+    flex: 1;
+    min-height: 44px;
+    padding: 10px 8px;
+    font-size: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .seg-btn.active,
+  .seg.sm button.active {
+    box-shadow: inset 0 -3px 0 rgba(255,255,255,.36);
+  }
+  .slider-wrap {
+    width: 100%;
+  }
+  .slider-wrap input[type=range] {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+  .select {
+    width: 100%;
+    min-height: 44px;
+  }
+  .mobile-sort-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(var(--accent-rgb), .06);
+    font-family: var(--f-mono);
+    font-size: 10px;
+    letter-spacing: .12em;
+    color: var(--ink-mute);
+    text-transform: uppercase;
+  }
+  .mobile-sort-status b {
+    color: var(--accent);
+    font-weight: 800;
+  }
   .rk-head { display: none; }
   .rk-row {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
     grid-template-areas:
-      "player prob"
-      "match  prob"
-      "signals signals"
-      "actions actions"
-      "detail detail";
-    padding: 14px;
+      "rank player prob"
+      "rank match  prob"
+      "signals signals signals"
+      "actions actions actions"
+      "detail detail detail";
+    gap: 8px 10px;
+    padding: 14px 12px;
   }
-  .rk-rank { display: none; }
+  .rk-rank {
+    grid-area: rank;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid rgba(var(--accent-rgb), .35);
+    background: rgba(var(--accent-rgb), .08);
+    font-size: 15px;
+    align-self: start;
+  }
   .rk-player { grid-area: player; }
   .rk-match  { grid-area: match; }
   .rk-factor-summary {
@@ -1738,7 +1910,20 @@ img { max-width: 100%; display: block; }
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-top: 8px;
   }
-  .rk-prob   { grid-area: prob; align-items: flex-end; }
+  .rk-prob {
+    grid-area: prob;
+    align-items: flex-end;
+    min-width: 82px;
+  }
+  .rk-prob-sub {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    font-size: 10px;
+  }
+  .rk-odds-sub {
+    font-size: 8px;
+  }
   .rk-ehr    { grid-area: ehr; }
   .rk-edge   { display: none; }
   .rk-actions { grid-area: actions; justify-self: end; margin-top: 4px; }

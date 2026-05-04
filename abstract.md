@@ -1,6 +1,6 @@
 # HR Predictor — Abstract
 
-**Updated:** 2026-04-28 — backend scoring hardening pass
+**Updated:** 2026-05-04 — mobile frontend hardening pass
 
 ## Current phase
 **Phase 8 — LangGraph explanation agent (optional)** — not started.
@@ -123,8 +123,9 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **Fonts:** Barlow Condensed (display, weights 400-900), Archivo (body), JetBrains Mono (data/labels), Bebas Neue fallback — all via `next/font/google`.
 - **Scroll-linked arc** (`components/landing/Arc.tsx`) runs a rAF loop that mutates SVG attributes via refs rather than React state. 400vh stage with sticky pin, physics-warped scroll→time mapping (ball dwells at apex, accelerates on descent), 10-slot ghost trail, altitude-scaled ground shadow, damage numbers that eject from ball position at each threshold, finale with stadium lights + crowd rise + count-up P(HR). `prefers-reduced-motion` collapses the arc to a static panel.
 - **Parlay ticket share-as-image** (`components/rankings/Ticket.tsx`) hand-rolls canvas drawing at device-pixel resolution. html2canvas was considered and rejected (fights CSS custom props + radial gradients). Web Share API used when available; `<a download>` fallback otherwise.
-- **Real API wiring with mock fallback.** `ui/lib/api.ts` returns `T | null` on any failure; `page.tsx` falls back to the mock PICKS if `/picks/today` is empty or unreachable. Adapter `lib/adapters.ts` converts API `PickSummary` shape to the design's `Pick` shape; fields the API doesn't own (jersey, handedness) are synthesized as placeholders.
+- **Real API wiring with explicit empty states.** `ui/lib/api.ts` returns `T | null` on any failure; the homepage renders real Neon-backed picks when available and explicit empty states when not. Adapter `lib/adapters.ts` converts API `PickSummary` shape to the design's `Pick` shape; fields the API doesn't own (jersey, handedness) are synthesized as placeholders.
 - **PropLine odds layer added (2026-05-01):** migration `0007_odds_snapshots` stores idempotent sportsbook snapshots for MLB `batter_home_runs`. `src.ingestion.prop_line_odds` maps events/players to local IDs, `/picks/today` joins the latest best Over price, and the UI now displays real model-vs-market edge/EV when odds exist. `scripts/refresh-picks.sh` and admin refresh fetch odds after inference when `PROP_LINE_API_KEY` is configured.
+- **Mobile hardening (2026-05-04):** coarse-pointer/small-screen devices skip the 400vh scroll-physics arc and render a compact static flight card instead. Leaderboard mobile controls now use touch-sized segmented buttons, visible rank pills, and a tested `ranking-sort` helper so Model Lift sorting gives obvious feedback.
 - **5 routes:** `/` (ISR 5m), `/model` (ISR 5m), `/player/[id]` (dynamic), `/matchup/[gamePk]/[batterId]` (dynamic), styled `/not-found`. Detail pages have no mock fallback — `notFound()` fires cleanly on missing data.
 - **Reliability chart is hand-rolled SVG.** The PROMPT mentioned recharts; it was removed mid-build because recharts' default visual language fights the stadium-brutalist aesthetic and the data shapes are simple enough that an ~80-line SVG component is cleaner. Future charts follow the same pattern.
 - **Next.js 16.2.4 (not 15).** `create-next-app` pulled the newer stable. All features used work identically to the 15 spec.
