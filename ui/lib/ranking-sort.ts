@@ -26,12 +26,19 @@ function compareBySort(sort: SortKey, a: Pick, b: Pick): number {
   return b.prob - a.prob;
 }
 
+function normalizeTeam(value: string): string {
+  return value.trim().toUpperCase();
+}
+
 export function sortPicksForBoard(
   picks: readonly Pick[],
   options: BoardSortOptions,
 ): Pick[] {
+  const selectedTeam = normalizeTeam(options.team);
   const rows = picks.filter(
-    (p) => p.prob >= options.minProb && (options.team === "" || p.team === options.team),
+    (p) =>
+      p.prob >= options.minProb &&
+      (selectedTeam === "" || normalizeTeam(p.team) === selectedTeam),
   );
   const sorted = [...rows].sort((a, b) => compareBySort(options.sort, a, b));
 

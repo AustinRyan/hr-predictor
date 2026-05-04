@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from src.ingestion.prop_line_client import PropLineEventOdds, flatten_batter_home_run_odds
+from src.ingestion.prop_line_client import (
+    PropLineClient,
+    PropLineEventOdds,
+    flatten_batter_home_run_odds,
+)
 
 SAMPLE_EVENT_ODDS = {
     "id": "evt_123",
@@ -105,3 +109,15 @@ def test_flatten_normalizes_player_named_yes_market() -> None:
     assert rows[0].outcome_name == "Yes"
     assert rows[0].player_name == "Aaron Judge"
     assert rows[0].point is None
+
+
+def test_default_client_retries_transient_network_and_provider_failures() -> None:
+    client = PropLineClient(api_key="test-key")
+    retry_config = client._session.adapters["https://"].max_retries
+
+    assert retry_config.total == 3
+    assert retry_config.connect == 3
+    assert retry_config.read == 3
+    assert retry_config.status == 3
+    assert 429 in retry_config.status_forcelist
+    assert 503 in retry_config.status_forcelist

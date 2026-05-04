@@ -8,11 +8,34 @@ from typing import Any
 
 import requests
 from pydantic import BaseModel, ConfigDict, Field
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from src.core.config import get_settings
 from src.models.odds import american_to_implied_probability
 
 _BATTER_HR_MARKET = "batter_home_runs"
+_TRANSIENT_STATUS_CODES = (429, 500, 502, 503, 504)
+_GET_METHODS = frozenset({"GET"})
+
+
+def _build_retrying_session() -> requests.Session:
+    retry_config = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        status=3,
+        backoff_factor=0.5,
+        status_forcelist=_TRANSIENT_STATUS_CODES,
+        allowed_methods=_GET_METHODS,
+        raise_on_status=False,
+        respect_retry_after_header=True,
+    )
+    adapter = HTTPAdapter(max_retries=retry_config)
+    session = requests.Session()
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 class PropLineEvent(BaseModel):
@@ -115,7 +138,7 @@ class PropLineClient:
         self._api_key = api_key if api_key is not None else settings.prop_line_api_key
         self._base_url = (base_url or settings.prop_line_base_url).rstrip("/")
         self._timeout_seconds = timeout_seconds
-        self._session = session or requests.Session()
+        self._session = session or _build_retrying_session()
 
     def _get(self, path: str, params: dict[str, str] | None = None) -> Any:
         if not self._api_key:

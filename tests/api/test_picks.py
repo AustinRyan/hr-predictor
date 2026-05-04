@@ -41,6 +41,10 @@ def _seed_predictions(game_date: date, model_version: str) -> None:
     with sf() as s:
         # Clean only this synthetic game; never wipe the real slate date.
         s.execute(text("DELETE FROM predictions WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
+        s.execute(
+            text("DELETE FROM projected_lineups WHERE game_pk = :gp"),
+            {"gp": _TEST_GAME_PK},
+        )
         # Park + schedule for FK context
         s.execute(
             text(
@@ -93,6 +97,15 @@ def _seed_predictions(game_date: date, model_version: str) -> None:
             )
         # 5 predictions with descending prob
         for i, pid in enumerate(_TEST_BATTER_IDS):
+            s.execute(
+                text(
+                    "INSERT INTO projected_lineups "
+                    "(game_pk, team_id, batter_id, batting_order, is_confirmed) "
+                    "VALUES (:gp, 9001, :b, :ord, true) "
+                    "ON CONFLICT DO NOTHING"
+                ),
+                {"gp": _TEST_GAME_PK, "b": pid, "ord": i + 1},
+            )
             s.execute(
                 text(
                     "INSERT INTO predictions "
@@ -195,6 +208,7 @@ def _cleanup_predictions() -> None:
     with sf() as s:
         s.execute(text("DELETE FROM odds_snapshots WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         s.execute(text("DELETE FROM predictions WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
+        s.execute(text("DELETE FROM projected_lineups WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         s.execute(text("DELETE FROM daily_schedule WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         s.commit()
     _flush_picks_cache()
@@ -221,6 +235,7 @@ async def test_picks_today_returns_sorted_by_prob(client) -> None:
         # Enrichment
         first = top5[0]
         assert first["batter_name"] == "Test Batter A"
+        assert first["team_abbr"] == "TST"
         assert first["pitcher_name"] == "Test Pitcher"
         assert first["pitcher_throws"] == "R"
         assert first["park_name"] == "Test Park"
@@ -272,9 +287,16 @@ async def test_picks_today_team_filter(client) -> None:
         r = await client.get("/picks/today?team=TST")
         assert r.status_code == 200
         body = r.json()
-        # Our seeded game has home team TST; should return our 5 seeds at minimum.
+        # Our seeded batters are in the TST lineup.
         our_rows = [b for b in body if b["batter_id"] in _TEST_BATTER_IDS]
         assert len(our_rows) == 5
+        assert {row["team_abbr"] for row in our_rows} == {"TST"}
+
+        r = await client.get("/picks/today?team=VIS")
+        assert r.status_code == 200
+        body = r.json()
+        our_rows = [b for b in body if b["batter_id"] in _TEST_BATTER_IDS]
+        assert our_rows == []
     finally:
         _cleanup_predictions()
 

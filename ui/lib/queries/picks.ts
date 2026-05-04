@@ -45,6 +45,7 @@ type Row = {
   wx_wind_carry_cf: string | null;
   wx_temperature_f: string | null;
   wx_air_density_relative: string | null;
+  team_abbr: string | null;
   home_abbr: string | null;
   away_abbr: string | null;
 };
@@ -64,7 +65,7 @@ function toPick(row: Row): PickSummary {
     batter_name: row.batter_name,
     batter_bats: row.batter_bats,
     batter_position: row.batter_position,
-    team_abbr: null, // not inferred in v1
+    team_abbr: row.team_abbr,
     game_pk: Number(row.game_pk),
     game_date:
       row.game_date instanceof Date
@@ -232,6 +233,14 @@ async function queryForDate(
       mf.wx_wind_carry_cf,
       mf.wx_temperature_f,
       mf.wx_air_density_relative,
+      COALESCE(
+        tm_batter.abbr,
+        CASE
+          WHEN mf.ctx_is_home IS TRUE THEN tm_home.abbr
+          WHEN mf.ctx_is_home IS FALSE THEN tm_away.abbr
+          ELSE NULL
+        END
+      ) AS team_abbr,
       tm_home.abbr AS home_abbr,
       tm_away.abbr AS away_abbr
     FROM predictions p
@@ -239,6 +248,15 @@ async function queryForDate(
     LEFT JOIN parks pk ON pk.park_id = ds.venue_id
     LEFT JOIN players bp ON bp.mlbam_id = p.batter_id
     LEFT JOIN players pp ON pp.mlbam_id = p.pitcher_id
+    LEFT JOIN LATERAL (
+      SELECT pl.team_id
+      FROM projected_lineups pl
+      WHERE pl.game_pk = p.game_pk
+        AND pl.batter_id = p.batter_id
+      ORDER BY pl.is_confirmed DESC, pl.fetched_at DESC NULLS LAST, pl.batting_order ASC
+      LIMIT 1
+    ) batter_lineup ON TRUE
+    LEFT JOIN teams tm_batter ON tm_batter.team_id = batter_lineup.team_id
     LEFT JOIN teams tm_home ON tm_home.team_id = ds.home_team_id
     LEFT JOIN teams tm_away ON tm_away.team_id = ds.away_team_id
     LEFT JOIN matchup_features mf
@@ -252,7 +270,17 @@ async function queryForDate(
     WHERE p.game_date = ${targetDate}
       AND p.model_version = ${modelVersion}
       AND p.prob_at_least_one_hr >= ${minProb}
-      AND (${team}::text IS NULL OR tm_home.abbr = ${team} OR tm_away.abbr = ${team})
+      AND (
+        ${team}::text IS NULL
+        OR COALESCE(
+          tm_batter.abbr,
+          CASE
+            WHEN mf.ctx_is_home IS TRUE THEN tm_home.abbr
+            WHEN mf.ctx_is_home IS FALSE THEN tm_away.abbr
+            ELSE NULL
+          END
+        ) = UPPER(${team}::text)
+      )
     ORDER BY
       CASE WHEN ${sortByEhr} THEN p.expected_hrs
            ELSE p.prob_at_least_one_hr END DESC NULLS LAST,

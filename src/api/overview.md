@@ -56,7 +56,8 @@ Ranked HR predictions for today's games. 5-minute Redis cache.
 Query params:
 - `limit: int = 20` (1–200)
 - `min_prob: float = 0.0` (0.0–1.0)
-- `team: str | None` — three-letter abbreviation
+- `team: str | None` — three-letter batter-team abbreviation, inferred
+  from `projected_lineups` with `matchup_features.ctx_is_home` fallback
 - `sort: "prob" | "expected_hrs" = "prob"`
 
 ```
@@ -65,7 +66,7 @@ $ curl -s 'http://127.0.0.1:8765/picks/today?limit=5'
   {
     "batter_id": 657656,
     "batter_name": "ramón laureano",
-    "team_abbr": null,
+    "team_abbr": "COL",
     "game_pk": 824368,
     "game_date": "2026-04-23",
     "game_start_utc": "2026-04-23T19:10:00Z",

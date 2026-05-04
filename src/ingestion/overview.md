@@ -130,3 +130,6 @@ from src.ingestion.scheduler import build_scheduler, start_scheduler
 - **PropLine odds are persisted snapshots, not live reads from picks.**
   This protects page latency, preserves line movement history, and keeps
   provider outages from breaking already-generated predictions.
+  The client retries transient 429/5xx/connect/read failures; if the
+  event list is unavailable, ingestion returns a failure report with zero
+  rows instead of aborting the daily picks refresh.

@@ -48,7 +48,8 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
   static arc card instead of the full scroll-physics arc. Leaderboard sort
   behavior lives in `lib/ranking-sort.ts` and is covered by
   `npm run test:ranking-sort`; mobile rows keep visible rank pills so sort
-  changes are obvious.
+  changes are obvious. Team filters use batter-team abbreviations inferred
+  from lineup rows, not just home/away game abbreviations.
 
 ## Conventions
 - Server components by default. `'use client'` only when interactivity (refs/state) is required.

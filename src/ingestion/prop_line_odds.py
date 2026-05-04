@@ -28,6 +28,7 @@ _log = logging.getLogger(__name__)
 
 _SPORT_KEY = "baseball_mlb"
 _MARKETS = ("batter_home_runs",)
+_API_KEY_QUERY_RE = re.compile(r"([?&]apiKey=)[^&\s]+", re.IGNORECASE)
 
 
 class PropLineOddsClient(Protocol):
@@ -65,6 +66,12 @@ def _normalize_name(value: str | None) -> str:
 
 def _snapshot_key(parts: list[str]) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+
+def _failure_message(scope: str, exc: BaseException) -> str:
+    message = str(exc) or exc.__class__.__name__
+    redacted = _API_KEY_QUERY_RE.sub(r"\1***", message)
+    return f"{scope}: {redacted}"
 
 
 def _load_schedule_map(engine: Engine, target_date: date) -> dict[tuple[str, str], int]:
@@ -109,7 +116,22 @@ def persist_mlb_batter_hr_odds(
 
     schedule_map = _load_schedule_map(engine, target_date)
     player_map = _load_player_map(engine)
-    events = client.fetch_events(_SPORT_KEY)
+    try:
+        events = client.fetch_events(_SPORT_KEY)
+    except Exception as exc:  # noqa: BLE001
+        report = OddsIngestionReport(
+            target_date=target_date,
+            failures=[_failure_message("fetch_events", exc)],
+        )
+        _log.warning(
+            "prop line odds event fetch failed: %s",
+            report.failures[0],
+            extra={
+                "target_date": target_date.isoformat(),
+                "failures": report.failures,
+            },
+        )
+        return report
 
     rows_to_write: list[dict] = []
     unmatched_events: list[str] = []
@@ -133,7 +155,7 @@ def persist_mlb_batter_hr_odds(
                 markets=_MARKETS,
             )
         except Exception as exc:  # noqa: BLE001
-            failures.append(f"{event.event_id}: {exc}")
+            failures.append(_failure_message(event.event_id, exc))
             continue
 
         flat_rows = flatten_batter_home_run_odds(event_odds, fetched_at=fetched_at)

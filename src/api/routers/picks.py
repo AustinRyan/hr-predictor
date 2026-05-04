@@ -97,13 +97,28 @@ _PICKS_TODAY_SQL = text("""
         tm_away.abbr AS away_abbr,
         ds.home_team_id,
         ds.away_team_id,
-        -- batter's team side inferred later in Python via lineup; for now NULL
-        NULL::text AS team_abbr
+        COALESCE(
+            tm_batter.abbr,
+            CASE
+                WHEN mf.ctx_is_home IS TRUE THEN tm_home.abbr
+                WHEN mf.ctx_is_home IS FALSE THEN tm_away.abbr
+                ELSE NULL
+            END
+        ) AS team_abbr
     FROM predictions p
     LEFT JOIN daily_schedule ds ON ds.game_pk = p.game_pk
     LEFT JOIN parks pk ON pk.park_id = ds.venue_id
     LEFT JOIN players bp ON bp.mlbam_id = p.batter_id
     LEFT JOIN players pp ON pp.mlbam_id = p.pitcher_id
+    LEFT JOIN LATERAL (
+        SELECT pl.team_id
+        FROM projected_lineups pl
+        WHERE pl.game_pk = p.game_pk
+          AND pl.batter_id = p.batter_id
+        ORDER BY pl.is_confirmed DESC, pl.fetched_at DESC NULLS LAST, pl.batting_order ASC
+        LIMIT 1
+    ) batter_lineup ON TRUE
+    LEFT JOIN teams tm_batter ON tm_batter.team_id = batter_lineup.team_id
     LEFT JOIN teams tm_home ON tm_home.team_id = ds.home_team_id
     LEFT JOIN teams tm_away ON tm_away.team_id = ds.away_team_id
     LEFT JOIN matchup_features mf
@@ -118,8 +133,14 @@ _PICKS_TODAY_SQL = text("""
       AND p.model_version = :model_version
       AND p.prob_at_least_one_hr >= :min_prob
       AND (CAST(:team AS text) IS NULL
-           OR tm_home.abbr = CAST(:team AS text)
-           OR tm_away.abbr = CAST(:team AS text))
+           OR COALESCE(
+                tm_batter.abbr,
+                CASE
+                    WHEN mf.ctx_is_home IS TRUE THEN tm_home.abbr
+                    WHEN mf.ctx_is_home IS FALSE THEN tm_away.abbr
+                    ELSE NULL
+                END
+           ) = UPPER(CAST(:team AS text)))
     ORDER BY
         CASE CAST(:sort AS text)
              WHEN 'expected_hrs' THEN p.expected_hrs
@@ -135,10 +156,6 @@ def _row_to_pick(row) -> PickSummary:
     # Top model drivers by absolute contribution.
     sorted_items = sorted(contribs_raw.items(), key=lambda kv: -abs(kv[1]))[:5]
     contributions = [FeatureContribution(name=k, contribution=float(v)) for k, v in sorted_items]
-
-    # Team abbreviation: we don't have a projected_lineups join here; expose as None
-    # in v1. Phase 7+ can wire it in if UI needs it.
-    team_abbr = None
 
     def _f(key: str) -> float | None:
         v = row.get(key) if hasattr(row, "get") else row[key]
@@ -163,7 +180,7 @@ def _row_to_pick(row) -> PickSummary:
         batter_name=row["batter_name"],
         batter_bats=row["batter_bats"],
         batter_position=row["batter_position"],
-        team_abbr=team_abbr,
+        team_abbr=row["team_abbr"],
         game_pk=int(row["game_pk"]),
         game_date=row["game_date"],
         game_start_utc=row["game_start_utc"],

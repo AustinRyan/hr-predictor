@@ -104,12 +104,24 @@ if [[ -z "${PROP_LINE_API_KEY:-}" ]]; then
 else
   uv run python -c "
 from datetime import date
+import re
+
 from src.ingestion.prop_line_odds import persist_mlb_batter_hr_odds
-r = persist_mlb_batter_hr_odds(date.fromisoformat('${TARGET_DATE}'))
-print(
-    f'  odds_rows={r.rows_written} events={r.events_matched}/{r.events_seen} '
-    f'unmatched_players={len(r.unmatched_players)} failures={r.failures}'
-)
+
+def _redact(value: str) -> str:
+    return re.sub(r'([?&]apiKey=)[^&\s]+', r'\1***', value, flags=re.IGNORECASE)
+
+try:
+    r = persist_mlb_batter_hr_odds(date.fromisoformat('${TARGET_DATE}'))
+except Exception as exc:
+    msg = _redact(str(exc) or exc.__class__.__name__)
+    print(f'  odds skipped: {msg}')
+    print('  predictions are still current; rerun later to refresh sportsbook edge')
+else:
+    print(
+        f'  odds_rows={r.rows_written} events={r.events_matched}/{r.events_seen} '
+        f'unmatched_players={len(r.unmatched_players)} failures={r.failures}'
+    )
 "
 fi
 

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 
+import requests
 from sqlalchemy import Engine, text
 from src.ingestion.prop_line_client import PropLineEvent, PropLineEventOdds
 from src.ingestion.prop_line_odds import persist_mlb_batter_hr_odds
@@ -36,6 +38,23 @@ class FakePropLineClient:
         assert event_id == self.event_odds.event_id
         assert markets == ("batter_home_runs",)
         return self.event_odds
+
+
+class EventsFetchFailurePropLineClient:
+    def fetch_events(self, sport_key: str) -> list[PropLineEvent]:
+        assert sport_key == "baseball_mlb"
+        raise requests.ConnectionError(
+            "connection reset while calling https://api.prop-line.com/events?apiKey=dummy-key"
+        )
+
+    def fetch_event_odds(
+        self,
+        *,
+        sport_key: str,
+        event_id: str,
+        markets: tuple[str, ...],
+    ) -> PropLineEventOdds:
+        raise AssertionError("fetch_event_odds should not run when events fetch fails")
 
 
 def _seed_game(test_engine: Engine) -> None:
@@ -143,3 +162,33 @@ def test_persist_mlb_batter_hr_odds_upserts_and_matches_game_player(
     assert rows[0]["outcome_name"] == "Over"
     assert rows[0]["price_american"] == 700
     assert float(rows[0]["implied_probability"]) == 100 / 800
+
+
+def test_persist_mlb_batter_hr_odds_reports_event_fetch_failure_without_writes(
+    test_engine: Engine,
+    clean_tables,
+) -> None:
+    with patch("src.ingestion.prop_line_odds._log.warning") as warning:
+        report = persist_mlb_batter_hr_odds(
+            date(2026, 5, 1),
+            engine=test_engine,
+            client=EventsFetchFailurePropLineClient(),
+            fetched_at=datetime(2026, 5, 1, 16, 2, tzinfo=UTC),
+        )
+
+    assert report.events_seen == 0
+    assert report.events_matched == 0
+    assert report.rows_seen == 0
+    assert report.rows_written == 0
+    assert len(report.failures) == 1
+    assert report.failures[0] == (
+        "fetch_events: connection reset while calling "
+        "https://api.prop-line.com/events?apiKey=***"
+    )
+    with test_engine.connect() as c:
+        count = c.execute(text("SELECT COUNT(*) FROM odds_snapshots")).scalar_one()
+    assert count == 0
+    warning.assert_called_once()
+    assert warning.call_args.kwargs.get("exc_info") is not True
+    assert "apiKey=***" in str(warning.call_args)
+    assert "dummy-key" not in str(warning.call_args)
