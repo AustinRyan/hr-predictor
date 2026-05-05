@@ -47,9 +47,10 @@ All external responses are parsed through Pydantic wire models
   Runs as `python -m src.ingestion.daily_runner [--date YYYY-MM-DD]
   [--skip-statcast] [--skip-weather]`.
 - `prop_line_odds.persist_mlb_batter_hr_odds(target_date, engine=...)`
-  — fetches PropLine MLB `batter_home_runs` odds, normalizes Over/Under
-  outcomes through Pydantic models, matches games/players to local IDs,
-  and upserts idempotent rows into `odds_snapshots`. CLI:
+  — fetches PropLine MLB `batter_home_runs` odds, keeps only the 1+ HR /
+  Over 0.5 outcomes that match the model target, normalizes outcomes
+  through Pydantic models, matches games/players to local IDs, and
+  upserts idempotent rows into `odds_snapshots`. CLI:
   `python -m src.ingestion.prop_line_odds --date YYYY-MM-DD`.
 - `scheduler.start_scheduler()` — blocking APScheduler process with a
   7 AM ET morning pull (full `daily_runner`) and an hourly 2–10 PM ET
@@ -133,3 +134,7 @@ from src.ingestion.scheduler import build_scheduler, start_scheduler
   The client retries transient 429/5xx/connect/read failures; if the
   event list is unavailable, ingestion returns a failure report with zero
   rows instead of aborting the daily picks refresh.
+- **PropLine `batter_home_runs` may include alternate ladders** such as
+  `2+ Home Runs`, `3+ Home Runs`, or Over 1.5. Those are different
+  bets from the model target (`P(at least one HR)`) and must be filtered
+  out before persistence.

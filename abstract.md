@@ -1,6 +1,6 @@
 # HR Predictor — Abstract
 
-**Updated:** 2026-05-04 — leaderboard filter hardening pass
+**Updated:** 2026-05-05 — odds and ranking hardening
 
 ## Current phase
 **Phase 8 — LangGraph explanation agent (optional)** — not started.
@@ -127,6 +127,9 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **PropLine odds layer added (2026-05-01):** migration `0007_odds_snapshots` stores idempotent sportsbook snapshots for MLB `batter_home_runs`. `src.ingestion.prop_line_odds` maps events/players to local IDs, `/picks/today` joins the latest best Over price, and the UI now displays real model-vs-market edge/EV when odds exist. `scripts/refresh-picks.sh` and admin refresh fetch odds after inference when `PROP_LINE_API_KEY` is configured; provider outages are retried and reported as odds-only failures so generated picks still complete.
 - **Mobile hardening (2026-05-04):** coarse-pointer/small-screen devices skip the 400vh scroll-physics arc and render a compact static flight card instead. Leaderboard mobile controls now use touch-sized segmented buttons, visible rank pills, and a tested `ranking-sort` helper so Model Lift sorting gives obvious feedback.
 - **Leaderboard filter hardening (2026-05-04):** `/picks/today` and the Next.js direct query now infer `team_abbr` from `projected_lineups` with a `ctx_is_home` fallback, so batter-team filters populate and filter actual rows instead of showing only `ALL TEAMS`.
+- **Refresh duplicate-matchup hardening (2026-05-04):** future feature builds now prune stale non-historical rows when probable starters or lineups change; inference ranks duplicate batter/game rows by latest `built_at` and removes abandoned current-slate prediction rows before upserting. This fixed the `ON CONFLICT DO UPDATE command cannot affect row a second time` failure seen when an old probable starter row survived alongside the current one, and prevents old lineup picks from lingering on the leaderboard.
+- **Odds ladder hardening (2026-05-05):** PropLine's `batter_home_runs` payload can include alternate ladder lines (`2+ Home Runs`, `3+ Home Runs`) beside the 1+ HR line. The parser now persists only 1+ HR / Over 0.5 outcomes, and both API + Next.js queries filter old alternate-ladder snapshots. Model edge now compares the model's `P(at least one HR)` only against matching 1+ HR sportsbook odds.
+- **Calibrated-probability tie hardening (2026-05-05):** isotonic calibration creates real probability plateaus, so multiple players can share the exact same `P(HR)`. The API/Next query now exposes `model_rank_score` from `matchup_components.starter_raw_prob` and uses it as the deterministic tie-breaker after calibrated probability. Fair odds are also emitted canonically as `fair_odds_american` from the model probability, and the frontend now displays calibrated probabilities to three decimals plus raw-score tie-breaks.
 - **5 routes:** `/` (ISR 5m), `/model` (ISR 5m), `/player/[id]` (dynamic), `/matchup/[gamePk]/[batterId]` (dynamic), styled `/not-found`. Detail pages have no mock fallback — `notFound()` fires cleanly on missing data.
 - **Reliability chart is hand-rolled SVG.** The PROMPT mentioned recharts; it was removed mid-build because recharts' default visual language fights the stadium-brutalist aesthetic and the data shapes are simple enough that an ~80-line SVG component is cleaner. Future charts follow the same pattern.
 - **Next.js 16.2.4 (not 15).** `create-next-app` pulled the newer stable. All features used work identically to the 15 spec.

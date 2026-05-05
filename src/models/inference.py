@@ -24,10 +24,10 @@ import numpy as np
 import pandas as pd
 import shap
 import xgboost
-from sqlalchemy import text
+from sqlalchemy import delete, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from src.core.db import get_engine
 from src.core.models import MatchupFeature, Prediction
@@ -50,6 +50,37 @@ def _validated_feature_schema(feature_schema: list[str]) -> list[str]:
             f"model feature schema has columns absent from matchup_features: {missing}"
         )
     return list(feature_schema)
+
+
+def _delete_stale_prediction_rows(
+    session: Session,
+    rows: list[dict[str, Any]],
+    *,
+    target_date: date,
+    model_version: str,
+) -> int:
+    """Delete predictions for players no longer in the current model-date slate."""
+    current_keys = sorted({(int(r["game_pk"]), int(r["batter_id"])) for r in rows})
+    if not current_keys:
+        return 0
+
+    stmt = delete(Prediction).where(
+        Prediction.game_date == target_date,
+        Prediction.model_version == model_version,
+        tuple_(Prediction.game_pk, Prediction.batter_id).notin_(current_keys),
+    )
+    result = session.execute(stmt)
+    deleted = result.rowcount if result.rowcount is not None and result.rowcount > 0 else 0
+    if deleted:
+        _log.info(
+            "inference pruned stale prediction rows",
+            extra={
+                "date": target_date.isoformat(),
+                "model_version": model_version,
+                "rows": deleted,
+            },
+        )
+    return deleted
 
 
 def generate_predictions_for_date(
@@ -101,20 +132,41 @@ def generate_predictions_for_date(
 
     with session_factory() as s:
         feature_schema = _validated_feature_schema(loaded.feature_schema)
-        feat_cols_sql = ", ".join(f"mf.{c}" for c in feature_schema)
+        feat_cols_inner_sql = ", ".join(f"mf.{c}" for c in feature_schema)
+        feat_cols_outer_sql = ", ".join(feature_schema)
         rows = (
             s.execute(
                 text(f"""
+                    WITH ranked_matchups AS (
+                        SELECT
+                            mf.game_pk,
+                            mf.batter_id,
+                            mf.pitcher_id,
+                            mf.game_date,
+                            mf.ctx_projected_pa AS projected_pa_for_output,
+                            {feat_cols_inner_sql},
+                            COUNT(*) OVER (
+                                PARTITION BY mf.game_pk, mf.batter_id
+                            ) AS duplicate_matchup_count,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY mf.game_pk, mf.batter_id
+                                ORDER BY mf.built_at DESC, mf.pitcher_id DESC
+                            ) AS matchup_rank
+                        FROM matchup_features mf
+                        WHERE mf.game_date = :d
+                          AND NOT mf.is_historical
+                    )
                     SELECT
-                        mf.game_pk,
-                        mf.batter_id,
-                        mf.pitcher_id,
-                        mf.game_date,
-                        mf.ctx_projected_pa,
-                        {feat_cols_sql}
-                    FROM matchup_features mf
-                    WHERE mf.game_date = :d
-                      AND NOT mf.is_historical
+                        game_pk,
+                        batter_id,
+                        pitcher_id,
+                        game_date,
+                        projected_pa_for_output,
+                        duplicate_matchup_count,
+                        {feat_cols_outer_sql}
+                    FROM ranked_matchups
+                    WHERE matchup_rank = 1
+                    ORDER BY game_pk, batter_id
                     """),
                 {"d": target_date},
             )
@@ -133,6 +185,17 @@ def generate_predictions_for_date(
         "inference input loaded",
         extra={"date": target_date.isoformat(), "rows": len(rows)},
     )
+    stale_matchups_skipped = sum(
+        int(r["duplicate_matchup_count"]) - 1 for r in rows if int(r["duplicate_matchup_count"]) > 1
+    )
+    if stale_matchups_skipped:
+        _log.warning(
+            "inference skipped stale duplicate matchup rows",
+            extra={
+                "date": target_date.isoformat(),
+                "rows": stale_matchups_skipped,
+            },
+        )
 
     # Build feature DataFrame in the exact order saved with the model artifact.
     feature_schema = _validated_feature_schema(loaded.feature_schema)
@@ -183,7 +246,8 @@ def generate_predictions_for_date(
     for i, r in enumerate(rows):
         raw_p = float(raw_probs[i])
         cal_p = float(cal_probs[i])
-        projected_pas = float(r["ctx_projected_pa"]) if r["ctx_projected_pa"] is not None else 4.0
+        projected_pa_value = r["projected_pa_for_output"]
+        projected_pas = float(projected_pa_value) if projected_pa_value is not None else 4.0
 
         dist = per_game_hr_distribution(GameMatchupInputs(starter_prob=cal_p, bullpen_prob=None))
 
@@ -219,6 +283,12 @@ def generate_predictions_for_date(
 
     # Upsert
     with session_factory() as s:
+        stale_predictions_deleted = _delete_stale_prediction_rows(
+            s,
+            to_write,
+            target_date=target_date,
+            model_version=loaded.version,
+        )
         stmt = pg_insert(Prediction).values(to_write)
         update_cols = {
             c.name: getattr(stmt.excluded, c.name)
@@ -238,6 +308,7 @@ def generate_predictions_for_date(
             "date": target_date.isoformat(),
             "model_version": loaded.version,
             "rows": len(to_write),
+            "stale_predictions_deleted": stale_predictions_deleted,
         },
     )
     return len(to_write)

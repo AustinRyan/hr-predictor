@@ -51,7 +51,7 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import delete, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -293,11 +293,17 @@ def _build_features_for_day(
 
     cache = _DayCache.build(session, day, raw_rows)
     final_rows: list[dict[str, Any]] = [_finalize_row(r, cache) for r in raw_rows]
+    stale_deleted = _delete_stale_future_rows(session, final_rows)
     _upsert_rows(session, final_rows)
 
     _log.info(
         "builder: wrote rows",
-        extra={"day": str(day), "rows": len(final_rows), "only_game_pk": only_game_pk},
+        extra={
+            "day": str(day),
+            "rows": len(final_rows),
+            "stale_future_rows_deleted": stale_deleted,
+            "only_game_pk": only_game_pk,
+        },
     )
     return len(final_rows)
 
@@ -793,6 +799,45 @@ def _finalize_row(raw: dict[str, Any], cache: _DayCache) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Upsert
 # ---------------------------------------------------------------------------
+
+
+def _delete_stale_future_rows(session: Session, rows: list[dict[str, Any]]) -> int:
+    """Delete obsolete future rows for games rebuilt from current schedule data."""
+    current_rows = [r for r in rows if r.get("is_historical") is False]
+    if not current_rows:
+        return 0
+
+    current_keys = sorted(
+        {
+            (
+                r["game_date"],
+                int(r["game_pk"]),
+                int(r["batter_id"]),
+                int(r["pitcher_id"]),
+            )
+            for r in current_rows
+        }
+    )
+    current_games = sorted({(r["game_date"], int(r["game_pk"])) for r in current_rows})
+
+    stmt = delete(MatchupFeature).where(
+        MatchupFeature.is_historical.is_(False),
+        tuple_(MatchupFeature.game_date, MatchupFeature.game_pk).in_(current_games),
+        tuple_(
+            MatchupFeature.game_date,
+            MatchupFeature.game_pk,
+            MatchupFeature.batter_id,
+            MatchupFeature.pitcher_id,
+        ).notin_(current_keys),
+    )
+    result = session.execute(stmt)
+    deleted = result.rowcount if result.rowcount is not None and result.rowcount > 0 else 0
+    if deleted:
+        _log.info(
+            "builder: pruned stale future matchup rows",
+            extra={"rows": deleted, "games": len(current_games)},
+        )
+    return deleted
 
 
 def _upsert_rows(session: Session, rows: list[dict[str, Any]]) -> None:

@@ -76,10 +76,12 @@ $ curl -s 'http://127.0.0.1:8765/picks/today?limit=5'
     "pitcher_throws": null,
     "prob_at_least_one_hr": 0.1025,
     "expected_hrs": 0.1025,
+    "model_rank_score": 0.118,
     "odds_bookmaker": "DraftKings",
     "odds_price_american": 700,
     "market_implied_probability": 0.125,
     "market_no_vig_probability": 0.121,
+    "fair_odds_american": 876,
     "model_edge": -0.0225,
     "expected_value_per_unit": -0.18,
     "pitcher_hr_per_9_season": 1.12,
@@ -199,9 +201,17 @@ Consistent `{error: str, detail?: str}` body:
   the model version loaded into app state. Historical/stale prediction
   versions can remain in the DB without leaking into current responses.
 - `/picks/today` joins the latest best available PropLine
-  `batter_home_runs` Over snapshot per `(game_pk, batter_id)` when odds
-  have been ingested. Odds fields are nullable so stale/missing provider
-  data does not hide predictions.
+  `batter_home_runs` 1+ HR / Over 0.5 snapshot per `(game_pk, batter_id)`
+  when odds have been ingested. The query also rejects older persisted
+  `2+ Home Runs` / `3+ Home Runs` alternate-ladder rows so model edge
+  always compares like-for-like. Odds fields are nullable so stale/missing
+  provider data does not hide predictions.
+- `/picks/today` deliberately tie-breaks equal calibrated probabilities
+  by `matchup_components.starter_raw_prob` (`model_rank_score` in the
+  response), then projected PA, batting order, and batter ID. Isotonic
+  calibration creates real probability plateaus; the raw score gives a
+  deterministic ranking inside each calibrated bucket without pretending
+  the headline probability is more precise than it is.
 - Cache keys include the current production model version.
 - Redis failures degrade gracefully.
 - `/health` returns 503 (not 200) when Postgres or Redis is down.

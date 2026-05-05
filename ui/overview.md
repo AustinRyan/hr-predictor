@@ -62,8 +62,16 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
   leaderboard data in `PickSummary -> adapter -> Pick.factors`; avoid adding
   more standalone columns unless the factor needs to drive sorting.
 - Real betting edge is `PickSummary.model_edge` from persisted odds
-  snapshots. When odds are missing, the adapter falls back to the old
+  snapshots. The server query mirrors the API's 1+ HR / Over 0.5 odds
+  filter and rejects alternate ladder rows such as `2+ Home Runs`.
+  When odds are missing, the adapter falls back to the old
   model-vs-baseline lift so the UI remains populated.
+- Equal displayed probabilities are expected with isotonic calibration.
+  The board uses `PickSummary.model_rank_score` as a deterministic raw-score
+  tie-breaker and shows it as `RAW` under `P(HR)` so tied calibrated buckets
+  still have a visible ordering signal. Use `lib/probability-format.ts` for
+  board-facing probability text; headline HR probabilities render to three
+  decimals rather than the earlier one-decimal display.
 - Mobile filter controls should remain touch-sized (44px minimum) and the
   `MODEL LIFT` sort must continue using `sortPicksForBoard` rather than
   duplicating ad hoc comparator logic in the component.

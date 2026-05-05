@@ -228,7 +228,12 @@ function factorGroups(p: PickSummary): FactorGroup[] {
   const edgeStr = formatEdge(p);
   const bookName = shortBookName(p.odds_bookmaker_key, p.odds_bookmaker);
   const bookOdds = formatAmerican(p.odds_price_american);
-  const fairOdds = p.odds_price_american === null ? null : fairAmericanFromProbability(p.prob_at_least_one_hr);
+  const fairOdds =
+    p.odds_price_american === null
+      ? null
+      : p.fair_odds_american !== null
+        ? formatAmerican(p.fair_odds_american)
+        : fairAmericanFromProbability(p.prob_at_least_one_hr);
   const ev = formatEv(p.expected_value_per_unit);
   const hasMarket = p.odds_price_american !== null && p.market_implied_probability !== null;
   const groups: FactorGroup[] = [
@@ -273,7 +278,10 @@ function factorGroups(p: PickSummary): FactorGroup[] {
     },
     {
       label: "MODEL",
-      items: modelDriverFactors(p.top_contributing_features),
+      items: [
+        factor("RAW", pct(p.model_rank_score, 1), "neutral"),
+        ...modelDriverFactors(p.top_contributing_features),
+      ].filter((x): x is FactorItem => x !== null),
     },
   ];
   return groups.filter((group) => group.items.length > 0);
@@ -302,10 +310,16 @@ export function adaptPickSummary(p: PickSummary): DesignPick {
     time: formatTime(p.game_start_utc),
     prob: p.prob_at_least_one_hr * 100,
     ehr: p.expected_hrs ?? 0,
+    rankScore: (p.model_rank_score ?? p.prob_at_least_one_hr) * 100,
     edge: edgeStr,
     edgeLabel: hasMarket ? "EDGE" : "LIFT",
     bookOdds: hasMarket && bookOdds ? `${bookName ?? "BOOK"} ${bookOdds}` : undefined,
-    fairOdds: hasMarket ? fairAmericanFromProbability(p.prob_at_least_one_hr) : undefined,
+    fairOdds:
+      hasMarket && p.fair_odds_american !== null
+        ? formatAmerican(p.fair_odds_american) ?? undefined
+        : hasMarket
+          ? fairAmericanFromProbability(p.prob_at_least_one_hr)
+          : undefined,
     ev: hasMarket ? formatEv(p.expected_value_per_unit) ?? undefined : undefined,
     neg: edgeNeg || undefined,
     ctx: ctxFromStats(p),

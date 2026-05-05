@@ -32,6 +32,7 @@ export type Pick = {
   time: string;
   prob: number;
   ehr: number;
+  rankScore?: number;
   edge: string;
   edgeLabel?: string;
   bookOdds?: string;

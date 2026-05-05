@@ -38,6 +38,7 @@ class PickSummary(BaseModel):
 
     prob_at_least_one_hr: float = Field(ge=0.0, le=1.0)
     expected_hrs: float | None = None
+    model_rank_score: float | None = None
 
     # Latest best available batter-HR Over odds, if sportsbook odds have
     # been ingested for this slate/player.
@@ -47,6 +48,7 @@ class PickSummary(BaseModel):
     odds_point: float | None = None
     market_implied_probability: float | None = Field(default=None, ge=0.0, le=1.0)
     market_no_vig_probability: float | None = Field(default=None, ge=0.0, le=1.0)
+    fair_odds_american: int | None = None
     model_edge: float | None = None
     expected_value_per_unit: float | None = None
     odds_fetched_at: datetime | None = None

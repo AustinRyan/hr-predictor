@@ -18,12 +18,28 @@ export function parseBoardEdge(edge: string): number {
 }
 
 function compareBySort(sort: SortKey, a: Pick, b: Pick): number {
-  if (sort === "prob") return b.prob - a.prob;
-  if (sort === "ehr") return b.ehr - a.ehr;
+  const rankScoreDelta = (b.rankScore ?? b.prob) - (a.rankScore ?? a.prob);
+  const stableDelta = a.id - b.id;
+
+  if (sort === "prob") {
+    const probDelta = b.prob - a.prob;
+    if (probDelta !== 0) return probDelta;
+    if (rankScoreDelta !== 0) return rankScoreDelta;
+    return stableDelta;
+  }
+  if (sort === "ehr") {
+    const ehrDelta = b.ehr - a.ehr;
+    if (ehrDelta !== 0) return ehrDelta;
+    if (rankScoreDelta !== 0) return rankScoreDelta;
+    return stableDelta;
+  }
 
   const edgeDelta = parseBoardEdge(b.edge) - parseBoardEdge(a.edge);
   if (edgeDelta !== 0 && Number.isFinite(edgeDelta)) return edgeDelta;
-  return b.prob - a.prob;
+  const probDelta = b.prob - a.prob;
+  if (probDelta !== 0) return probDelta;
+  if (rankScoreDelta !== 0) return rankScoreDelta;
+  return stableDelta;
 }
 
 function normalizeTeam(value: string): string {

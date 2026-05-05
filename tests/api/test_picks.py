@@ -184,7 +184,11 @@ def _seed_odds(game_date: date) -> None:
                 "('test-odds-a-under', 'prop_line', 'baseball_mlb', 'evt_test', :gp, :d, :ts, "
                 " 'Test Home', 'Test Away', 'draftkings', 'DraftKings', 'batter_home_runs', "
                 " 'Under', 'Test Batter A', 700001, -1000, 0.5, 0.90909, 0.879, :lu, :fa, "
-                " '{}'::jsonb) "
+                ' \'{"name":"Under"}\'::jsonb), '
+                "('test-odds-a-2hr', 'prop_line', 'baseball_mlb', 'evt_test', :gp, :d, :ts, "
+                " 'Test Home', 'Test Away', 'draftkings', 'DraftKings', 'batter_home_runs', "
+                " 'Yes', 'Test Batter A', 700001, 5000, NULL, 0.0196, NULL, :lu, :fa, "
+                ' \'{"name":"2+ Home Runs","description":"Test Batter A"}\'::jsonb) '
                 "ON CONFLICT (snapshot_key) DO UPDATE SET "
                 "price_american = EXCLUDED.price_american, "
                 "implied_probability = EXCLUDED.implied_probability, "
@@ -314,12 +318,62 @@ async def test_picks_today_includes_latest_best_odds_edge_and_ev(client) -> None
 
         assert pick["odds_bookmaker"] == "DraftKings"
         assert pick["odds_price_american"] == 700
+        assert pick["fair_odds_american"] == -9900
         assert pick["market_implied_probability"] == pytest.approx(0.125)
         assert pick["market_no_vig_probability"] == pytest.approx(0.121)
         assert pick["model_edge"] == pytest.approx(pick["prob_at_least_one_hr"] - 0.125)
         assert pick["expected_value_per_unit"] == pytest.approx(
             pick["prob_at_least_one_hr"] * 7 - (1 - pick["prob_at_least_one_hr"])
         )
+    finally:
+        _cleanup_predictions()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_picks_today_breaks_probability_ties_with_raw_model_score(client) -> None:
+    today = current_mlb_date()
+    model_version = _active_model_version()
+    _seed_predictions(today, model_version)
+    sf = _get_session_factory()
+    with sf() as s:
+        s.execute(
+            text(
+                "UPDATE predictions "
+                "SET prob_at_least_one_hr = 0.75, expected_hrs = 0.75, "
+                "    matchup_components = :mc "
+                "WHERE game_pk = :gp AND batter_id = :b AND model_version = :mv"
+            ),
+            {
+                "gp": _TEST_GAME_PK,
+                "b": 700001,
+                "mv": model_version,
+                "mc": '{"starter_raw_prob": 0.10, "starter_calibrated_prob": 0.75}',
+            },
+        )
+        s.execute(
+            text(
+                "UPDATE predictions "
+                "SET prob_at_least_one_hr = 0.75, expected_hrs = 0.75, "
+                "    matchup_components = :mc "
+                "WHERE game_pk = :gp AND batter_id = :b AND model_version = :mv"
+            ),
+            {
+                "gp": _TEST_GAME_PK,
+                "b": 700002,
+                "mv": model_version,
+                "mc": '{"starter_raw_prob": 0.20, "starter_calibrated_prob": 0.75}',
+            },
+        )
+        s.commit()
+    _flush_picks_cache()
+    try:
+        r = await client.get("/picks/today?limit=10")
+        assert r.status_code == 200, r.text
+        tied = [row for row in r.json() if row["batter_id"] in {700001, 700002}]
+
+        assert [row["batter_id"] for row in tied] == [700002, 700001]
+        assert [row["model_rank_score"] for row in tied] == pytest.approx([0.20, 0.10])
     finally:
         _cleanup_predictions()
 

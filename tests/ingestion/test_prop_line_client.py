@@ -111,6 +111,91 @@ def test_flatten_normalizes_player_named_yes_market() -> None:
     assert rows[0].point is None
 
 
+def test_flatten_keeps_one_plus_home_run_and_ignores_alternate_ladder_lines() -> None:
+    payload = dict(SAMPLE_EVENT_ODDS)
+    payload["bookmakers"] = [
+        {
+            "key": "draftkings",
+            "title": "DraftKings",
+            "markets": [
+                {
+                    "key": "batter_home_runs",
+                    "last_update": "2026-05-01T16:01:00Z",
+                    "outcomes": [
+                        {
+                            "name": "1+ Home Runs",
+                            "description": "Aaron Judge",
+                            "price": 500,
+                        },
+                        {
+                            "name": "2+ Home Runs",
+                            "description": "Aaron Judge",
+                            "price": 5000,
+                        },
+                        {
+                            "name": "3+ Home Runs",
+                            "description": "Aaron Judge",
+                            "price": 10000,
+                        },
+                    ],
+                }
+            ],
+        }
+    ]
+    event = PropLineEventOdds.model_validate(payload)
+
+    rows = flatten_batter_home_run_odds(event)
+
+    assert len(rows) == 1
+    assert rows[0].outcome_name == "Yes"
+    assert rows[0].player_name == "Aaron Judge"
+    assert rows[0].price_american == 500
+    assert rows[0].raw_outcome["name"] == "1+ Home Runs"
+
+
+def test_flatten_ignores_over_under_alternate_home_run_points() -> None:
+    payload = dict(SAMPLE_EVENT_ODDS)
+    payload["bookmakers"] = [
+        {
+            "key": "fanduel",
+            "title": "FanDuel",
+            "markets": [
+                {
+                    "key": "batter_home_runs",
+                    "last_update": "2026-05-01T16:01:00Z",
+                    "outcomes": [
+                        {
+                            "name": "Over",
+                            "description": "Aaron Judge",
+                            "price": 700,
+                            "point": 0.5,
+                        },
+                        {
+                            "name": "Under",
+                            "description": "Aaron Judge",
+                            "price": -1000,
+                            "point": 0.5,
+                        },
+                        {
+                            "name": "Over",
+                            "description": "Aaron Judge",
+                            "price": 5000,
+                            "point": 1.5,
+                        },
+                    ],
+                }
+            ],
+        }
+    ]
+    event = PropLineEventOdds.model_validate(payload)
+
+    rows = flatten_batter_home_run_odds(event)
+
+    assert len(rows) == 2
+    assert {row.outcome_name for row in rows} == {"Over", "Under"}
+    assert {row.price_american for row in rows} == {700, -1000}
+
+
 def test_default_client_retries_transient_network_and_provider_failures() -> None:
     client = PropLineClient(api_key="test-key")
     retry_config = client._session.adapters["https://"].max_retries

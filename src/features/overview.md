@@ -146,6 +146,11 @@ from src.features.batter_splits import regress_rate, LEAGUE_AVG_HR_PER_PA
 - **`_finalize_row` uses per-day caches** to avoid round-trips on
   `park_hr_factor_for` / `days_since_last_game` — pre-fetched once at the
   top of `_build_features_for_day`. Critical for the day-batched speedup.
+- **Future rebuilds prune stale rows for rebuilt games.** Probable starters
+  and lineups can change during the day, while `matchup_features` is keyed by
+  `(game_date, game_pk, batter_id, pitcher_id)`. `_delete_stale_future_rows`
+  removes obsolete non-historical rows before the current rows are upserted,
+  preventing duplicate batter/game matchups from reaching inference.
 - **Re-run the historical backfill** by invoking
   `uv run python -u phases/phase3/backfill_runner.py` (~12 hours on a
   laptop). Output JSON-lines to `reports/phase3_backfill.log`. Idempotent

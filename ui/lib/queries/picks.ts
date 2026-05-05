@@ -17,6 +17,7 @@ type Row = {
   pitcher_id: number;
   prob_at_least_one_hr: string; // numeric comes back as string
   expected_hrs: string | null;
+  model_rank_score: string | null;
   feature_contributions: Record<string, number> | null;
   model_version: string;
   odds_bookmaker_key: string | null;
@@ -25,6 +26,7 @@ type Row = {
   odds_point: string | null;
   market_implied_probability: string | null;
   market_no_vig_probability: string | null;
+  fair_odds_american: number | null;
   model_edge: string | null;
   expected_value_per_unit: string | null;
   odds_fetched_at: Date | null;
@@ -82,6 +84,7 @@ function toPick(row: Row): PickSummary {
     pitcher_throws: row.pitcher_throws,
     prob_at_least_one_hr: Number(row.prob_at_least_one_hr),
     expected_hrs: n(row.expected_hrs),
+    model_rank_score: n(row.model_rank_score),
     odds_bookmaker: row.odds_bookmaker,
     odds_bookmaker_key: row.odds_bookmaker_key,
     odds_price_american:
@@ -89,6 +92,8 @@ function toPick(row: Row): PickSummary {
     odds_point: n(row.odds_point),
     market_implied_probability: n(row.market_implied_probability),
     market_no_vig_probability: n(row.market_no_vig_probability),
+    fair_odds_american:
+      row.fair_odds_american === null ? null : Number(row.fair_odds_american),
     model_edge: n(row.model_edge),
     expected_value_per_unit: n(row.expected_value_per_unit),
     odds_fetched_at: row.odds_fetched_at ? new Date(row.odds_fetched_at).toISOString() : null,
@@ -171,6 +176,9 @@ async function queryForDate(
         AND os.market_key = 'batter_home_runs'
         AND os.outcome_name IN ('Over', 'Yes')
         AND os.batter_id IS NOT NULL
+        AND (os.point IS NULL OR ABS(os.point - 0.5) < 0.000001)
+        AND COALESCE(os.raw_outcome->>'name', '') !~*
+          '^\\s*[2-9][0-9]*\\+\\s+home runs?\\s*$'
     ),
     best_odds AS (
       SELECT DISTINCT ON (game_pk, batter_id)
@@ -194,6 +202,10 @@ async function queryForDate(
       p.pitcher_id,
       p.prob_at_least_one_hr,
       p.expected_hrs,
+      COALESCE(
+        NULLIF(p.matchup_components->>'starter_raw_prob', '')::double precision,
+        p.prob_at_least_one_hr
+      ) AS model_rank_score,
       p.feature_contributions,
       p.model_version,
       bo.bookmaker_key AS odds_bookmaker_key,
@@ -202,6 +214,15 @@ async function queryForDate(
       bo.point AS odds_point,
       bo.implied_probability AS market_implied_probability,
       bo.no_vig_probability AS market_no_vig_probability,
+      (
+        CASE
+          WHEN p.prob_at_least_one_hr <= 0 OR p.prob_at_least_one_hr >= 1 THEN NULL
+          WHEN p.prob_at_least_one_hr >= 0.5 THEN
+            ROUND(-100.0 * p.prob_at_least_one_hr / (1.0 - p.prob_at_least_one_hr))
+          ELSE
+            ROUND(100.0 * (1.0 - p.prob_at_least_one_hr) / p.prob_at_least_one_hr)
+        END
+      )::int AS fair_odds_american,
       CASE
         WHEN bo.implied_probability IS NULL THEN NULL
         ELSE p.prob_at_least_one_hr - bo.implied_probability
@@ -284,7 +305,14 @@ async function queryForDate(
     ORDER BY
       CASE WHEN ${sortByEhr} THEN p.expected_hrs
            ELSE p.prob_at_least_one_hr END DESC NULLS LAST,
-      p.prob_at_least_one_hr DESC NULLS LAST
+      p.prob_at_least_one_hr DESC NULLS LAST,
+      COALESCE(
+        NULLIF(p.matchup_components->>'starter_raw_prob', '')::double precision,
+        p.prob_at_least_one_hr
+      ) DESC NULLS LAST,
+      mf.ctx_projected_pa DESC NULLS LAST,
+      mf.ctx_batting_order ASC NULLS LAST,
+      p.batter_id ASC
     LIMIT ${limit}
   `) as unknown as Row[];
   return rows.map(toPick);

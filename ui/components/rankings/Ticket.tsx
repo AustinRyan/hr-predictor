@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Pick } from "@/lib/pick-view";
+import { formatBoardProbability } from "@/lib/probability-format";
 
 type Props = {
   legs: Pick[];
@@ -122,7 +123,7 @@ async function renderTicketToPng(legs: Pick[], pays: string, ticketNum: string):
     ctx.textAlign = "right";
     ctx.font = "800 15px 'Barlow Condensed', system-ui, sans-serif";
     ctx.fillStyle = "#c8302a";
-    ctx.fillText(`${leg.prob.toFixed(1)}%`, w - pad, y + 4);
+    ctx.fillText(formatBoardProbability(leg.prob), w - pad, y + 4);
     y += legH;
     ctx.font = "800 13px 'Barlow Condensed', system-ui, sans-serif";
   }
@@ -245,7 +246,7 @@ export function Ticket({ legs, combinedP, pays, onReset }: Props) {
                   {l.team} · VS {l.vs}
                 </div>
               </div>
-              <div className="t-leg-prob">{l.prob.toFixed(1)}%</div>
+              <div className="t-leg-prob">{formatBoardProbability(l.prob)}</div>
             </div>
           ))}
         </div>
