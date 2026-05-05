@@ -6,6 +6,7 @@
 
 import type { PickSummary, ModelMetricsResponse } from "./types";
 import type { ScoreboardGame, SlateCard } from "./pick-view";
+import { formatModelProbability } from "./probability-format";
 
 function fmtTime(utc: string | null): string {
   if (!utc) return "TBD";
@@ -40,7 +41,17 @@ type GameGroup = {
   top: PickSummary;
 };
 
-/** Group picks by game_pk; track the highest-prob batter per game. */
+function comparePickRank(a: PickSummary, b: PickSummary): number {
+  const probDelta = b.prob_at_least_one_hr - a.prob_at_least_one_hr;
+  if (probDelta !== 0) return probDelta;
+  const rawDelta =
+    (b.model_rank_score ?? b.prob_at_least_one_hr) -
+    (a.model_rank_score ?? a.prob_at_least_one_hr);
+  if (rawDelta !== 0) return rawDelta;
+  return a.batter_id - b.batter_id;
+}
+
+/** Group picks by game_pk; track the highest-ranked batter per game. */
 function groupGames(picks: readonly PickSummary[]): GameGroup[] {
   const map = new Map<number, GameGroup>();
   for (const p of picks) {
@@ -54,7 +65,7 @@ function groupGames(picks: readonly PickSummary[]): GameGroup[] {
         park: p.park_name,
         top: p,
       });
-    } else if (p.prob_at_least_one_hr > existing.top.prob_at_least_one_hr) {
+    } else if (comparePickRank(p, existing.top) < 0) {
       existing.top = p;
     }
   }
@@ -70,7 +81,7 @@ export function buildScoreboard(picks: readonly PickSummary[]): ScoreboardGame[]
     away: g.away ?? "—",
     home: g.home ?? "—",
     time: fmtTime(g.time_utc),
-    topProb: `${shortName(g.top.batter_name, g.top.batter_id)} · ${(g.top.prob_at_least_one_hr * 100).toFixed(1)}%`,
+    topProb: `${shortName(g.top.batter_name, g.top.batter_id)} · ${formatModelProbability(g.top.prob_at_least_one_hr)}`,
   }));
 }
 
@@ -99,7 +110,7 @@ export function buildSlate(picks: readonly PickSummary[]): SlateCard[] {
             const sign = d >= 0 ? "+" : "";
             return `${sign}${d.toFixed(0)}`;
           })(),
-    topPick: `${shortName(g.top.batter_name, g.top.batter_id)} · ${(g.top.prob_at_least_one_hr * 100).toFixed(1)}%`,
+    topPick: `${shortName(g.top.batter_name, g.top.batter_id)} · ${formatModelProbability(g.top.prob_at_least_one_hr)}`,
   }));
 }
 
@@ -114,12 +125,10 @@ export function buildTicker(
   const items: string[] = [];
 
   if (picks.length > 0) {
-    const sorted = [...picks].sort(
-      (a, b) => b.prob_at_least_one_hr - a.prob_at_least_one_hr,
-    );
+    const sorted = [...picks].sort(comparePickRank);
     const top = sorted[0]!;
     const topName = (top.batter_name ?? `#${top.batter_id}`).toUpperCase();
-    items.push(`HR LEADER TODAY · ${topName} ${(top.prob_at_least_one_hr * 100).toFixed(1)}%`);
+    items.push(`HR LEADER TODAY · ${topName} ${formatModelProbability(top.prob_at_least_one_hr)}`);
     items.push(
       `SLATE · ${new Set(picks.map((p) => p.game_pk)).size} GAMES · ${picks.length} QUALIFIED HITTERS`,
     );

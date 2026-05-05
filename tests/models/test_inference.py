@@ -178,6 +178,118 @@ def test_generate_predictions_idempotent(
 
 
 @pytest.mark.integration
+def test_generate_predictions_uses_latest_matchup_when_probable_changes(
+    test_engine: Engine,
+    clean_tables,
+    tmp_registry: Path,
+) -> None:
+    """Stale probable-starter rows must not create duplicate prediction upserts."""
+    version, _ = _train_tiny_model_and_calibrator(tmp_registry)
+
+    session_factory = sessionmaker(bind=test_engine, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        s.execute(text("""
+                INSERT INTO matchup_features
+                  (game_date, game_pk, batter_id, pitcher_id, is_historical,
+                   ctx_projected_pa, b_barrel_pct_season, built_at)
+                VALUES
+                  ('2026-04-23', 9993001, 999301, 999401, FALSE,
+                   4.00, 0.05, '2026-04-23 12:00:00+00'),
+                  ('2026-04-23', 9993001, 999301, 999402, FALSE,
+                   4.60, 0.10, '2026-04-23 13:00:00+00')
+                """))
+        s.commit()
+
+    from src.models import artifacts
+
+    orig = artifacts._DEFAULT_REGISTRY
+    artifacts._DEFAULT_REGISTRY = tmp_registry
+    try:
+        n = generate_predictions_for_date(
+            date(2026, 4, 23), model_version=version, engine=test_engine
+        )
+    finally:
+        artifacts._DEFAULT_REGISTRY = orig
+
+    with session_factory() as s:
+        rows = (
+            s.execute(
+                text(
+                    "SELECT batter_id, pitcher_id, projected_pas "
+                    "FROM predictions WHERE game_pk = 9993001"
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+    assert n == 1
+    assert [dict(row) for row in rows] == [
+        {"batter_id": 999301, "pitcher_id": 999402, "projected_pas": 4.6}
+    ]
+
+
+@pytest.mark.integration
+def test_generate_predictions_prunes_stale_rows_for_model_date(
+    test_engine: Engine,
+    clean_tables,
+    tmp_registry: Path,
+) -> None:
+    """Predictions for players no longer in the current feature set are removed."""
+    version, _ = _train_tiny_model_and_calibrator(tmp_registry)
+
+    session_factory = sessionmaker(bind=test_engine, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        s.execute(text("""
+                INSERT INTO matchup_features
+                  (game_date, game_pk, batter_id, pitcher_id, is_historical,
+                   ctx_projected_pa, b_barrel_pct_season)
+                VALUES
+                  ('2026-04-23', 9994001, 999401, 999501, FALSE, 4.60, 0.10)
+                """))
+        s.execute(
+            text("""
+                INSERT INTO predictions
+                  (game_pk, batter_id, pitcher_id, game_date, model_version,
+                   matchup_components, projected_pas, prob_at_least_one_hr,
+                   prob_at_least_two_hr, expected_hrs, feature_contributions)
+                VALUES
+                  (9994001, 999499, 999501, '2026-04-23', :version,
+                   '{}'::jsonb, 4.0, 0.05, 0.0, 0.05, NULL)
+                """),
+            {"version": version},
+        )
+        s.commit()
+
+    from src.models import artifacts
+
+    orig = artifacts._DEFAULT_REGISTRY
+    artifacts._DEFAULT_REGISTRY = tmp_registry
+    try:
+        n = generate_predictions_for_date(
+            date(2026, 4, 23), model_version=version, engine=test_engine
+        )
+    finally:
+        artifacts._DEFAULT_REGISTRY = orig
+
+    with session_factory() as s:
+        rows = (
+            s.execute(
+                text(
+                    "SELECT batter_id FROM predictions "
+                    "WHERE game_date = '2026-04-23' AND model_version = :version"
+                ),
+                {"version": version},
+            )
+            .scalars()
+            .all()
+        )
+
+    assert n == 1
+    assert rows == [999401]
+
+
+@pytest.mark.integration
 def test_generate_returns_zero_on_empty_date(
     test_engine: Engine,
     clean_tables,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -17,6 +18,7 @@ from src.models.odds import american_to_implied_probability
 _BATTER_HR_MARKET = "batter_home_runs"
 _TRANSIENT_STATUS_CODES = (429, 500, 502, 503, 504)
 _GET_METHODS = frozenset({"GET"})
+_HOME_RUN_LADDER_RE = re.compile(r"^\s*(\d+)\+\s+home runs?\s*$", re.IGNORECASE)
 
 
 def _build_retrying_session() -> requests.Session:
@@ -210,6 +212,16 @@ def _no_vig_probabilities(
     return no_vig
 
 
+def _is_primary_batter_home_run_outcome(outcome: PropLineOutcome) -> bool:
+    """Return True only for the 1+ HR market, excluding alternate HR ladders."""
+    ladder = _HOME_RUN_LADDER_RE.match(outcome.name)
+    if ladder is not None:
+        return int(ladder.group(1)) == 1
+    if outcome.point is not None and abs(float(outcome.point) - 0.5) > 1e-9:
+        return False
+    return True
+
+
 def flatten_batter_home_run_odds(
     event: PropLineEventOdds,
     *,
@@ -223,6 +235,8 @@ def flatten_batter_home_run_odds(
             if market.key != _BATTER_HR_MARKET:
                 continue
             for outcome in market.outcomes:
+                if not _is_primary_batter_home_run_outcome(outcome):
+                    continue
                 rows.append(
                     FlattenedPropOdds(
                         provider="prop_line",

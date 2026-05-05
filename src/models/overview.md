@@ -82,6 +82,16 @@ src/models/registry/v{YYYYMMDD_HHMMSS}/
 
 - **`FEATURE_COLUMNS` is enumerated at module-load time** from `MatchupFeature`. Excluded columns: `game_date`, `game_pk`, `batter_id`, `pitcher_id` (keys), `hr_on_pa` (label), `is_historical` (flag), `built_at` (audit), two string columns (`p_primary_pitch`, `ctx_day_night`), and the two leaky rest-day diagnostics. Add a new numeric feature column to the ORM and it's automatically in `FEATURE_COLUMNS` for future training runs — no manual update. Currently 118 features.
 - **Inference uses the artifact schema, not live `FEATURE_COLUMNS`.** `generate_predictions_for_date` validates every saved feature name exists on `matchup_features`, then selects/builds the frame in exactly that artifact order. This prevents a new ORM feature column from silently reshaping an older production model.
+- **Inference defensively ranks future duplicates.** If stale future
+  `matchup_features` rows exist for the same `(game_pk, batter_id)`, the
+  query keeps the newest `built_at` row before prediction upsert. The feature
+  builder should prune these first, but inference still guards the predictions
+  table's unique `(game_pk, batter_id, model_version)` constraint.
+- **Inference prunes stale current-slate predictions.** After lineup or
+  probable-starter changes, players can disappear from the current feature
+  set. `generate_predictions_for_date` deletes old rows for the same
+  `(game_date, model_version)` before upserting the fresh slate so the UI does
+  not show abandoned picks from an earlier refresh.
 - **Production pointer is authoritative.** `load_model()` now loads `registry/PRODUCTION` when present; newest-directory fallback exists only for fresh local registries/tests.
 - **NaN handling is native XGBoost**, not imputed. Bat-tracking (`b_avg_bat_speed`, `b_squared_up_pct`, `b_blast_rate`) is NaN pre-2024; weather is NaN at exhibition venues; retractable-roof context can be NaN. Don't re-enter imputation logic — XGBoost learns a default split direction per feature.
 - **`precision_at_top_k` is "per-day":** for each `game_date` in the eval set, rank preds, take top K (default 20), count hits. Average across days. K=20 ≈ "a slate of 20 prop bets" — tunable via `TrainingConfig.top_k_per_day`.
@@ -94,5 +104,9 @@ src/models/registry/v{YYYYMMDD_HHMMSS}/
 - **`save_model` is atomic-ish**: plots are written into a `tempfile.TemporaryDirectory`, then copied into the version dir in one pass. Partial saves should not appear on disk.
 - **Calibrator is strictly additive inside the version dir.** `save_calibrator` never overwrites `model.xgb` or `training_metadata.json`; it only writes `calibrator.joblib`. Safe to re-fit and re-save without invalidating the model artifact. The `IsotonicRegression` is fit with `out_of_bounds="clip"` so test-time raw probabilities outside the val-observed range clip to the nearest endpoint (no silent extrapolation).
 - **Isotonic caps the calibrated range.** On this data the calibrated per-matchup probability maxes out at ~0.222 (val's observed right tail). Downstream callers should expect clustering at that cap for the highest-raw matchups; it's isotonic's piecewise-constant behavior, not a bug.
+- **Use raw score only as a tie-breaker.** `matchup_components.starter_raw_prob`
+  is the pre-calibration ensemble score. It is useful for deterministic
+  ordering inside isotonic probability plateaus, but the headline
+  probability and fair odds must use the calibrated `prob_at_least_one_hr`.
 - **`per_game_hr_distribution` does not compound per-PA.** The model's calibrated output is already a per-matchup game-level probability (Phase 3 `hr_on_pa` is per-batter-pitcher-game, not per-PA). With only a starter prediction, `P(≥1 HR) == starter_prob`. With both starter and bullpen predictions, they combine via `1 - (1 - P_s)(1 - P_b)`. See `phases/phase5/NOTES.md` "Rollup semantic bug — fixed post-tag" for the history behind this correction.
 - **`poisson_binomial_pmf` is exact, not approximate.** Reused by `per_game_hr_distribution` to produce the full PMF over 1–2 per-matchup probabilities (starter + optional bullpen). O(n²) convolution with small n is effectively free. The math works for any independent-Bernoulli composition; it's the same tool whether you feed it per-PA probabilities or per-matchup probabilities.

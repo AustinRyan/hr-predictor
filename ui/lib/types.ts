@@ -29,6 +29,7 @@ export type PickSummary = {
 
   prob_at_least_one_hr: number;
   expected_hrs: number | null;
+  model_rank_score: number | null;
 
   odds_bookmaker: string | null;
   odds_bookmaker_key: string | null;
@@ -36,6 +37,7 @@ export type PickSummary = {
   odds_point: number | null;
   market_implied_probability: number | null;
   market_no_vig_probability: number | null;
+  fair_odds_american: number | null;
   model_edge: number | null;
   expected_value_per_unit: number | null;
   odds_fetched_at: string | null;

@@ -9,6 +9,7 @@ import {
   type FactorItem,
   type Pick,
 } from "@/lib/pick-view";
+import { formatBoardProbability } from "@/lib/probability-format";
 import { boardSortLabel, sortPicksForBoard, type SortKey } from "@/lib/ranking-sort";
 import { Ticket } from "./Ticket";
 
@@ -310,7 +311,7 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
           {filtered[0] && (
             <span>
               Top {filtered[0].last} · {sort === "prob"
-                ? `${filtered[0].prob.toFixed(1)}%`
+                ? formatBoardProbability(filtered[0].prob)
                 : sort === "ehr"
                   ? filtered[0].ehr.toFixed(3)
                   : filtered[0].edge}
@@ -403,12 +404,12 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                         ))}
                       </div>
                       <div className="rk-prob">
-                        <div className="rk-prob-pct">{p.prob.toFixed(1)}%</div>
+                        <div className="rk-prob-pct">{formatBoardProbability(p.prob)}</div>
                         <div className="rk-prob-bar">
                           <span style={{ width: `${Math.min(100, p.prob * 5)}%` }} />
                         </div>
                         <div className="rk-prob-sub">
-                          <span>E {p.ehr.toFixed(3)}</span>
+                          <span>RAW {formatBoardProbability(p.rankScore ?? p.prob)}</span>
                           <span className={edgeNeg ? "neg" : "pos"}>{p.edgeLabel ?? "LIFT"} {p.edge}</span>
                         </div>
                         {p.bookOdds && p.fairOdds && (
@@ -529,7 +530,7 @@ export function RankingsApp({ picks }: RankingsProps = {}) {
                       fontVariantNumeric: "tabular-nums",
                       alignSelf: "center",
                     }}>
-                      {leg.prob.toFixed(1)}%
+                      {formatBoardProbability(leg.prob)}
                     </div>
                     <button
                       type="button"

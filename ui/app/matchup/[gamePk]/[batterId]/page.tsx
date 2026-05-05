@@ -4,6 +4,7 @@ import { Nav } from "@/components/landing/Nav";
 import { Footer } from "@/components/landing/Footer";
 import { ShapBars } from "@/components/charts/ShapBars";
 import { getMatchup } from "@/lib/api";
+import { formatModelProbability } from "@/lib/probability-format";
 
 export const revalidate = 120;
 
@@ -72,7 +73,7 @@ export default async function MatchupPage({ params }: PageProps) {
               <div className="detail-card-v accent">
                 {prediction.prob_at_least_one_hr === null
                   ? "—"
-                  : (prediction.prob_at_least_one_hr * 100).toFixed(1)}
+                  : formatModelProbability(prediction.prob_at_least_one_hr).replace("%", "")}
                 <span style={{ fontSize: ".4em", color: "var(--ink-dim)", marginLeft: 4 }}>%</span>
               </div>
             </div>
@@ -96,8 +97,8 @@ export default async function MatchupPage({ params }: PageProps) {
               <div className="detail-card-v small">{prediction.model_version ?? "—"}</div>
               {prediction.starter_raw_prob !== null && (
                 <div className="detail-card-sub">
-                  raw {(prediction.starter_raw_prob * 100).toFixed(2)}% →
-                  cal {prediction.starter_calibrated_prob === null ? "—" : (prediction.starter_calibrated_prob * 100).toFixed(2)}%
+                  raw {formatModelProbability(prediction.starter_raw_prob)} →
+                  cal {formatModelProbability(prediction.starter_calibrated_prob)}
                 </div>
               )}
             </div>

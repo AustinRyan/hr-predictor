@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
-from src.features.builder import build_features_for_game
+from src.features.builder import build_features_for_date, build_features_for_game
 
 
 @pytest.fixture()
@@ -128,6 +128,70 @@ def test_build_features_for_today_no_schedule(test_engine: Engine, clean_tables)
     from src.features.builder import build_features_for_today
 
     assert build_features_for_today(engine=test_engine) == 0
+
+
+@pytest.mark.integration
+def test_future_build_prunes_stale_probable_pitcher_rows(
+    test_engine: Engine,
+    clean_tables,
+) -> None:
+    """Probable-starter changes should not leave duplicate future matchups."""
+    session_factory = sessionmaker(bind=test_engine, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        s.execute(
+            text(
+                "INSERT INTO parks (park_id, name, elevation_ft, orientation_deg, roof_type) "
+                "VALUES (99803, 'future park', 100, 0.0, 'open') ON CONFLICT DO NOTHING"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO daily_schedule "
+                "(game_pk, game_date, home_team_id, away_team_id, venue_id, "
+                " game_start_utc, probable_home_pitcher_id, probable_away_pitcher_id, status) "
+                "VALUES (9991001, '2026-04-23', 1, 2, 99803, NOW(), 1111, 2222, 'Scheduled')"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO projected_lineups "
+                "(game_pk, team_id, batter_id, batting_order, is_confirmed) "
+                "VALUES "
+                "(9991001, 2, 9001, 1, FALSE), "
+                "(9991001, 1, 9002, 1, FALSE)"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO matchup_features "
+                "(game_date, game_pk, batter_id, pitcher_id, is_historical, park_id, "
+                " ctx_projected_pa) "
+                "VALUES ('2026-04-23', 9991001, 9001, 3333, FALSE, 99803, 4.6)"
+            )
+        )
+        s.commit()
+
+    written = build_features_for_date(date(2026, 4, 23), engine=test_engine)
+
+    with session_factory() as s:
+        rows = (
+            s.execute(
+                text(
+                    "SELECT batter_id, pitcher_id "
+                    "FROM matchup_features "
+                    "WHERE game_pk = 9991001 "
+                    "ORDER BY batter_id, pitcher_id"
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+    assert written == 2
+    assert [dict(row) for row in rows] == [
+        {"batter_id": 9001, "pitcher_id": 1111},
+        {"batter_id": 9002, "pitcher_id": 2222},
+    ]
 
 
 @pytest.mark.integration

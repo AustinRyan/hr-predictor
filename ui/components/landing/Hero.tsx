@@ -1,5 +1,6 @@
 import type { HeroStats } from "@/lib/adapters";
 import { headshotUrl, type Pick } from "@/lib/pick-view";
+import { formatBoardProbability } from "@/lib/probability-format";
 
 function formatDate(): string {
   return new Date()
@@ -113,7 +114,7 @@ export function Hero({ picks, topStats, ticker, gameCount, modelVersion, brier }
           <div className="pick-prob">
             <div className="prob-label">P(HOME RUN)</div>
             <div className="prob-big">
-              {topPick ? topPick.prob.toFixed(1) : "--"}
+              {topPick ? formatBoardProbability(topPick.prob).replace("%", "") : "--"}
               {topPick && <span className="pct">%</span>}
             </div>
             <div

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Nav } from "@/components/landing/Nav";
 import { Footer } from "@/components/landing/Footer";
 import { getPlayer } from "@/lib/api";
+import { formatModelProbability } from "@/lib/probability-format";
 
 export const revalidate = 300;
 
@@ -71,7 +72,7 @@ export default async function PlayerPage({ params }: PageProps) {
               <div className="detail-card">
                 <div className="detail-card-k">P(≥1 HR)</div>
                 <div className="detail-card-v accent">
-                  {(pred.prob_at_least_one_hr * 100).toFixed(1)}
+                  {formatModelProbability(pred.prob_at_least_one_hr).replace("%", "")}
                   <span style={{ fontSize: ".4em", color: "var(--ink-dim)", marginLeft: 4 }}>%</span>
                 </div>
                 <div className="detail-card-sub">MODEL {pred.model_version}</div>
