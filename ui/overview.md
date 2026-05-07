@@ -65,7 +65,9 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
   snapshots. The server query mirrors the API's 1+ HR / Over 0.5 odds
   filter and rejects alternate ladder rows such as `2+ Home Runs`.
   When odds are missing, the adapter falls back to the old
-  model-vs-baseline lift so the UI remains populated.
+  model-vs-baseline lift so the UI remains populated. Selecting the
+  `MODEL LIFT` sort filters the board to rows with real sportsbook odds
+  (`Pick.bookOdds`); use probability or E[HR] sorts for the full slate.
 - Equal displayed probabilities are expected with isotonic calibration.
   The board uses `PickSummary.model_rank_score` as a deterministic raw-score
   tie-breaker and shows it as `RAW` under `P(HR)` so tied calibrated buckets
