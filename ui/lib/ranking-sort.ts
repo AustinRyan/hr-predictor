@@ -46,6 +46,10 @@ function normalizeTeam(value: string): string {
   return value.trim().toUpperCase();
 }
 
+function hasSportsbookOdds(pick: Pick): boolean {
+  return Boolean(pick.bookOdds);
+}
+
 export function sortPicksForBoard(
   picks: readonly Pick[],
   options: BoardSortOptions,
@@ -54,7 +58,8 @@ export function sortPicksForBoard(
   const rows = picks.filter(
     (p) =>
       p.prob >= options.minProb &&
-      (selectedTeam === "" || normalizeTeam(p.team) === selectedTeam),
+      (selectedTeam === "" || normalizeTeam(p.team) === selectedTeam) &&
+      (options.sort !== "edge" || hasSportsbookOdds(p)),
   );
   const sorted = [...rows].sort((a, b) => compareBySort(options.sort, a, b));
 

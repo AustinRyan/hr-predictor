@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { formatBoardProbability } from "../lib/probability-format.ts";
 import { parseBoardEdge, sortPicksForBoard } from "../lib/ranking-sort.ts";
 
-function pick(id, prob, edge, gamePk, team = "TST", rankScore = prob / 100) {
+function pick(id, prob, edge, gamePk, team = "TST", rankScore = prob / 100, bookOdds) {
   return {
     id,
     first: "TEST",
@@ -19,15 +19,17 @@ function pick(id, prob, edge, gamePk, team = "TST", rankScore = prob / 100) {
     ehr: prob / 100,
     rankScore,
     edge,
+    edgeLabel: bookOdds ? "EDGE" : "LIFT",
+    bookOdds,
     ctx: [],
     gamePk,
   };
 }
 
 const rows = [
-  pick(1, 14, "+1.0", 101, "ATL"),
-  pick(2, 8, "+6.5", 102, "NYY"),
-  pick(3, 10, "+3.0", 101, "ATL"),
+  pick(1, 14, "+1.0", 101, "ATL", 0.14, "DK +500"),
+  pick(2, 8, "+6.5", 102, "NYY", 0.08, "FD +800"),
+  pick(3, 10, "+3.0", 101, "ATL", 0.1),
 ];
 
 assert.equal(parseBoardEdge("+6.5"), 6.5);
@@ -45,7 +47,7 @@ assert.deepEqual(
     limit: 10,
     onePerGame: false,
   }).map((row) => row.id),
-  [2, 3, 1],
+  [2, 1],
 );
 
 assert.deepEqual(
