@@ -427,9 +427,21 @@ class MatchupFeature(Base):
     # Pitcher TTO
     p_tto_penalty: Mapped[float | None] = mapped_column(Float)
 
-    # Opposing bullpen
+    # Legacy opposing bullpen proxy
     bp_barrel_pct_allowed_season: Mapped[float | None] = mapped_column(Float)
     bp_hr_per_9_season: Mapped[float | None] = mapped_column(Float)
+
+    # Opponent team bullpen
+    opp_team_id: Mapped[int | None] = mapped_column(Integer)
+    opp_bp_hr_per_pa_30d: Mapped[float | None] = mapped_column(Float)
+    opp_bp_hr_per_pa_season: Mapped[float | None] = mapped_column(Float)
+    opp_bp_barrel_pct_allowed_30d: Mapped[float | None] = mapped_column(Float)
+    opp_bp_barrel_pct_allowed_season: Mapped[float | None] = mapped_column(Float)
+    opp_bp_hardhit_pct_allowed_30d: Mapped[float | None] = mapped_column(Float)
+    opp_bp_hardhit_pct_allowed_season: Mapped[float | None] = mapped_column(Float)
+    opp_bp_lhb_hr_per_pa_season: Mapped[float | None] = mapped_column(Float)
+    opp_bp_rhb_hr_per_pa_season: Mapped[float | None] = mapped_column(Float)
+    opp_bp_pitches_last_3d: Mapped[float | None] = mapped_column(Float)
 
     # Park factors
     park_hr_factor_hand: Mapped[float | None] = mapped_column(Float)
