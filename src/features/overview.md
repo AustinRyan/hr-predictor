@@ -48,6 +48,10 @@ profile, park, weather, and context. Reads Phase 1 + Phase 2 tables; writes
   primary pitch (`MODE()`). Season window.
 - `bullpen.bullpen_sql()` — league-wide aggregate (minus the starter) for
   barrel% allowed and HR/9. Season window. Proxy, not team-specific.
+- `team_bullpen.team_bullpen_sql()` — opponent-team-specific relief aggregate
+  keyed by `(opp_team_id, reference_date)`. Uses inning context to identify the
+  pitching team, excludes that team's starter per game, and emits HR/PA,
+  barrel%, hard-hit%, handedness splits, and recent workload.
 
 **Park-factor joiners (read `park_factors` + `parks` tables):**
 - `park_factors_features.park_hr_factor_for(batter_hand, park_id, season, session)` —
@@ -125,6 +129,13 @@ from src.features.batter_splits import regress_rate, LEAGUE_AVG_HR_PER_PA
   `bullpen_sql()` has no batter/pitcher equi-join predicate (cross-product
   with all matchups). Done in a deduplicated `(pitcher_id, reference_date)`
   batch, then merged into Python rows.
+- **Team bullpen features are opponent-team-specific.** `opp_bp_*` aggregates
+  use only relief pitches by the batter's opponent team before
+  `reference_date`; target-date pitches are excluded with strict `<`. Starters
+  are excluded per team-game by taking the first inning-1 pitcher for the team
+  that is on defense (`Top` → home team pitching, `Bot` → away team pitching).
+  This is still a team-level strength and workload signal, not a projected
+  reliever-depth-chart model.
 - **HR/9 is a proxy.** `p_hr_per_9_season` ≈ `HR_count / PA_count * 38.7`
   (9 innings × 4.3 PAs/inning). We don't track per-PA outs. Off by a few
   percent for extreme K/walk pitchers. See `phases/phase3/NOTES.md`.
