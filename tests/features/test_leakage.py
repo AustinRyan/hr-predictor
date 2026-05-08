@@ -93,3 +93,103 @@ def test_target_game_features_exclude_target_game_data(leakage_setup: Engine) ->
     assert row["b_hr_per_pa_season"] == pytest.approx(0.0, abs=0.01)  # 0 HR in prior PAs
     # The LABEL, however, should be True - batter DID hit HR in this game.
     assert row["hr_on_pa"] is True
+
+
+@pytest.fixture()
+def team_bullpen_leakage_setup(test_engine: Engine, clean_tables) -> Iterator[Engine]:
+    """Seed prior bullpen data plus a target-date reliever HR that must not leak."""
+    session_factory = sessionmaker(bind=test_engine, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        s.execute(
+            text(
+                "INSERT INTO parks (park_id, name, elevation_ft, orientation_deg, roof_type) "
+                "VALUES (88901, 'team bp leakage park', 100, 0.0, 'open')"
+            )
+        )
+        for game_pk, game_date in ((889001, "2024-06-01"), (889002, "2024-06-10")):
+            s.execute(
+                text(
+                    "INSERT INTO games "
+                    "(game_pk, game_date, season, venue_id, home_team_id, away_team_id, "
+                    "status, day_night) "
+                    "VALUES (:game_pk, :game_date, 2024, 88901, 100, 200, 'Final', 'D')"
+                ),
+                {"game_pk": game_pk, "game_date": game_date},
+            )
+
+        # Prior home starter + reliever. Prior reliever allows no HR.
+        s.execute(
+            text(
+                "INSERT INTO statcast_pitches "
+                "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, "
+                "stand, p_throws, inning, inning_topbot, launch_speed, "
+                "launch_speed_angle, events) "
+                "VALUES ('2024-06-01', 889001, 1, 1, 6001, 7001, 'L', 'R', "
+                "1, 'Top', 80.0, 2, 'single')"
+            )
+        )
+        for ab in (10, 11):
+            s.execute(
+                text(
+                    "INSERT INTO statcast_pitches "
+                    "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, "
+                    "stand, p_throws, inning, inning_topbot, launch_speed, "
+                    "launch_speed_angle, events) "
+                    "VALUES ('2024-06-01', 889001, :ab, 1, :batter, 7002, 'L', 'R', "
+                    "7, 'Top', 90.0, 3, 'single')"
+                ),
+                {"ab": ab, "batter": 6100 + ab},
+            )
+
+        # Target starter matchup row plus a target-date home reliever HR.
+        s.execute(
+            text(
+                "INSERT INTO statcast_pitches "
+                "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, "
+                "stand, p_throws, inning, inning_topbot, launch_speed, "
+                "launch_speed_angle, events) "
+                "VALUES ('2024-06-10', 889002, 1, 1, 6001, 7001, 'L', 'R', "
+                "1, 'Top', 85.0, 2, 'single')"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO statcast_pitches "
+                "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, "
+                "stand, p_throws, inning, inning_topbot, launch_speed, "
+                "launch_speed_angle, events) "
+                "VALUES ('2024-06-10', 889002, 10, 1, 6002, 7002, 'L', 'R', "
+                "7, 'Top', 115.0, 6, 'home_run')"
+            )
+        )
+        s.commit()
+    yield test_engine
+
+
+@pytest.mark.integration
+def test_team_bullpen_features_exclude_target_date_relief_hrs(
+    team_bullpen_leakage_setup: Engine,
+) -> None:
+    written = build_features_for_game(889002, engine=team_bullpen_leakage_setup)
+    assert written >= 1
+
+    session_factory = sessionmaker(
+        bind=team_bullpen_leakage_setup,
+        future=True,
+        expire_on_commit=False,
+    )
+    with session_factory() as s:
+        row = (
+            s.execute(
+                text(
+                    "SELECT opp_team_id, opp_bp_hr_per_pa_30d "
+                    "FROM matchup_features "
+                    "WHERE game_pk = 889002 AND batter_id = 6001 AND pitcher_id = 7001"
+                )
+            )
+            .mappings()
+            .one()
+        )
+
+    assert row["opp_team_id"] == 100
+    assert row["opp_bp_hr_per_pa_30d"] == pytest.approx(0.0)

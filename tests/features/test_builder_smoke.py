@@ -195,6 +195,119 @@ def test_future_build_prunes_stale_probable_pitcher_rows(
 
 
 @pytest.mark.integration
+def test_builder_populates_team_bullpen_features(test_engine: Engine, clean_tables) -> None:
+    """Future rows attach the opponent team's relief-only bullpen profile."""
+    session_factory = sessionmaker(bind=test_engine, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        s.execute(
+            text(
+                "INSERT INTO parks (park_id, name, elevation_ft, orientation_deg, roof_type) "
+                "VALUES (99901, 'team bullpen park', 100, 0.0, 'open')"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO games "
+                "(game_pk, game_date, season, venue_id, home_team_id, away_team_id, status) "
+                "VALUES (9992001, '2024-06-01', 2024, 99901, 100, 200, 'Final')"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO daily_schedule "
+                "(game_pk, game_date, home_team_id, away_team_id, venue_id, "
+                " game_start_utc, probable_home_pitcher_id, probable_away_pitcher_id, status) "
+                "VALUES (9992002, '2024-06-10', 100, 200, 99901, NOW(), 9001, 9011, "
+                "'Scheduled')"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO projected_lineups "
+                "(game_pk, team_id, batter_id, batting_order, is_confirmed) "
+                "VALUES "
+                "(9992002, 200, 5001, 1, FALSE), "
+                "(9992002, 100, 5002, 1, FALSE)"
+            )
+        )
+        # Home team 100 starter + reliever. Top-half means home team is pitching.
+        s.execute(
+            text(
+                "INSERT INTO statcast_pitches "
+                "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, "
+                "inning, inning_topbot, stand, launch_speed, launch_speed_angle, events) "
+                "VALUES ('2024-06-01', 9992001, 1, 1, 5101, 9001, "
+                "1, 'Top', 'L', 80.0, 2, 'single')"
+            )
+        )
+        for ab, event in ((10, "home_run"), (11, "single")):
+            s.execute(
+                text(
+                    "INSERT INTO statcast_pitches "
+                    "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, "
+                    "inning, inning_topbot, stand, launch_speed, launch_speed_angle, events) "
+                    "VALUES ('2024-06-01', 9992001, :ab, 1, :batter, 9002, "
+                    "7, 'Top', 'L', 100.0, 6, :event)"
+                ),
+                {"ab": ab, "batter": 5100 + ab, "event": event},
+            )
+        # Away team 200 starter + reliever. Bottom-half means away team is pitching.
+        s.execute(
+            text(
+                "INSERT INTO statcast_pitches "
+                "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, "
+                "inning, inning_topbot, stand, launch_speed, launch_speed_angle, events) "
+                "VALUES ('2024-06-01', 9992001, 20, 1, 5201, 9011, "
+                "1, 'Bot', 'R', 80.0, 2, 'single')"
+            )
+        )
+        for ab in (30, 31):
+            s.execute(
+                text(
+                    "INSERT INTO statcast_pitches "
+                    "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, "
+                    "inning, inning_topbot, stand, launch_speed, launch_speed_angle, events) "
+                    "VALUES ('2024-06-01', 9992001, :ab, 1, :batter, 9012, "
+                    "7, 'Bot', 'R', 82.0, 2, 'single')"
+                ),
+                {"ab": ab, "batter": 5200 + ab},
+            )
+        s.commit()
+
+    written = build_features_for_date(date(2024, 6, 10), engine=test_engine)
+
+    with session_factory() as s:
+        rows = (
+            s.execute(
+                text(
+                    "SELECT batter_id, pitcher_id, opp_team_id, opp_bp_hr_per_pa_30d "
+                    "FROM matchup_features "
+                    "WHERE game_pk = 9992002 "
+                    "ORDER BY batter_id"
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+    assert written == 2
+    assert [dict(row) for row in rows] == [
+        {
+            "batter_id": 5001,
+            "pitcher_id": 9001,
+            "opp_team_id": 100,
+            "opp_bp_hr_per_pa_30d": pytest.approx(0.5),
+        },
+        {
+            "batter_id": 5002,
+            "pitcher_id": 9011,
+            "opp_team_id": 200,
+            "opp_bp_hr_per_pa_30d": pytest.approx(0.0),
+        },
+    ]
+
+
+@pytest.mark.integration
 def test_day_batched_builds_multiple_games_in_one_pass(leakage_setup) -> None:
     """Seed two synthetic games on the same day, verify both land via the day path."""
     from src.features.builder import build_features_for_historical

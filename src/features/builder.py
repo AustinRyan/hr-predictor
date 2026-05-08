@@ -71,6 +71,7 @@ from src.features.context import (
 from src.features.park_factors_features import THREE_YEAR_WEIGHTS
 from src.features.pitcher_pitch_mix import pitch_mix_sql
 from src.features.pitcher_profile import pitcher_profile_sql, tto_penalty_for
+from src.features.team_bullpen import TEAM_BULLPEN_COLS, team_bullpen_sql
 from src.features.weather_physics import (
     air_density_relative,
     apply_roof_gating,
@@ -137,6 +138,7 @@ _PITCH_MIX_COLS: tuple[str, ...] = tuple(f"p_{pt}_usage" for pt in _PITCH_TYPES)
 )
 
 _BULLPEN_COLS: tuple[str, ...] = ("bp_barrel_pct_allowed_season", "bp_hr_per_9_season")
+_TEAM_BULLPEN_COLS: tuple[str, ...] = TEAM_BULLPEN_COLS
 
 # Columns that are pulled in by _run_feature_query but are NOT persisted to
 # matchup_features — they feed the Python post-processing in _finalize_row.
@@ -291,6 +293,23 @@ def _build_features_for_day(
             for col in _BULLPEN_COLS:
                 row.setdefault(col, None)
 
+    # Team bullpen runs on distinct (opp_team_id, reference_date), then
+    # merges back into each batter matchup. Missing team context remains
+    # nullable for historical exhibition rows and incomplete schedules.
+    team_bullpen_by_key = _run_team_bullpen_query(session, day=day, only_game_pk=only_game_pk)
+    for row in raw_rows:
+        opp_team_id = row.get("opp_team_id")
+        vals = (
+            team_bullpen_by_key.get((int(opp_team_id), row["game_date"]))
+            if opp_team_id is not None
+            else None
+        )
+        if vals is not None:
+            row.update(vals)
+        else:
+            for col in _TEAM_BULLPEN_COLS:
+                row.setdefault(col, None)
+
     cache = _DayCache.build(session, day, raw_rows)
     final_rows: list[dict[str, Any]] = [_finalize_row(r, cache) for r in raw_rows]
     stale_deleted = _delete_stale_future_rows(session, final_rows)
@@ -330,8 +349,17 @@ def _matchup_keys_cte(*, only_game_pk: int | None) -> str:
             sp.game_date AS reference_date,
             sp.batter AS batter_id,
             sp.pitcher AS pitcher_id,
-            TRUE AS is_historical
+            TRUE AS is_historical,
+            CASE
+                WHEN sp.inning_topbot = 'Bot'
+                    THEN COALESCE(g.away_team_id, ds_hist.away_team_id)
+                WHEN sp.inning_topbot = 'Top'
+                    THEN COALESCE(g.home_team_id, ds_hist.home_team_id)
+                ELSE NULL
+            END AS opp_team_id
         FROM statcast_pitches sp
+        LEFT JOIN games g ON g.game_pk = sp.game_pk
+        LEFT JOIN daily_schedule ds_hist ON ds_hist.game_pk = sp.game_pk
         WHERE sp.game_date = :day
         {gp_hist}
         UNION ALL
@@ -342,7 +370,10 @@ def _matchup_keys_cte(*, only_game_pk: int | None) -> str:
             CASE WHEN pl.team_id = ds.home_team_id
                  THEN ds.probable_away_pitcher_id
                  ELSE ds.probable_home_pitcher_id END AS pitcher_id,
-            FALSE AS is_historical
+            FALSE AS is_historical,
+            CASE WHEN pl.team_id = ds.home_team_id
+                 THEN ds.away_team_id
+                 ELSE ds.home_team_id END AS opp_team_id
         FROM daily_schedule ds
         JOIN projected_lineups pl ON pl.game_pk = ds.game_pk
         WHERE ds.game_date = :day
@@ -415,6 +446,7 @@ def _run_feature_query(
         mk.reference_date AS game_date,
         mk.batter_id,
         mk.pitcher_id,
+        mk.opp_team_id,
         mk.is_historical AS is_historical,
         {label_sql},
         {_qualified_cols('br', _BATTER_ROLLING_COLS)},
@@ -564,6 +596,48 @@ def _run_bullpen_query(
     for r in rows:
         key = (int(r["pitcher_id"]), r["game_date"])
         out[key] = {col: r[col] for col in _BULLPEN_COLS}
+    return out
+
+
+def _run_team_bullpen_query(
+    session: Session,
+    *,
+    day: date,
+    only_game_pk: int | None,
+) -> dict[tuple[int, date], dict[str, Any]]:
+    """Run team bullpen CTE on distinct ``(opp_team_id, reference_date)`` keys."""
+    base_mk = _matchup_keys_cte(only_game_pk=only_game_pk)
+    distinct_mk = f"""
+        SELECT 0::int AS game_pk, 0::int AS batter_id, 0::int AS pitcher_id,
+               d.reference_date, FALSE AS is_historical, d.opp_team_id
+        FROM (
+            SELECT DISTINCT opp_team_id, reference_date
+            FROM ({base_mk}) raw_mk
+            WHERE opp_team_id IS NOT NULL
+        ) d
+    """
+    q = f"""
+    WITH matchup_keys AS (
+        {distinct_mk}
+    ),
+    team_bullpen_cte AS (
+        {team_bullpen_sql()}
+    )
+    SELECT
+        tbp.opp_team_id,
+        tbp.reference_date AS game_date,
+        {_qualified_cols('tbp', _TEAM_BULLPEN_COLS)}
+    FROM team_bullpen_cte tbp
+    """
+    params: dict[str, Any] = {"day": day}
+    if only_game_pk is not None:
+        params["only_game_pk"] = only_game_pk
+
+    rows = session.execute(text(q), params).mappings().all()
+    out: dict[tuple[int, date], dict[str, Any]] = {}
+    for r in rows:
+        key = (int(r["opp_team_id"]), r["game_date"])
+        out[key] = {col: r[col] for col in _TEAM_BULLPEN_COLS}
     return out
 
 
