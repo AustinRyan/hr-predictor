@@ -9,6 +9,12 @@ Scope boundary: **no API** (Phase 6), **no daily inference pipeline** (Phase 6+)
 
 - **`train.py`** — orchestrator. `train_baseline(config: TrainingConfig | None = None, ...) -> TrainingResult` runs the full pipeline: load → time-based split → fit XGBoost → predict → compute metrics → render plots → persist artifact. CLI wrapper `python -m src.models.train` uses defaults.
 - **`data.py`** — feature loading + split. `load_training_data(start_date, end_date, *, engine=None) -> FeatureFrame` pulls `matchup_features` WHERE `is_historical=True AND hr_on_pa IS NOT NULL`. `time_based_split(engine=None) -> TrainValTest` materializes the three fixed-date frames. `FEATURE_COLUMNS: list[str]` is the single source of truth for column order.
+- **`full_game_data.py`** — full-game target loading + split.
+  `load_full_game_training_data(start_date, end_date, *, engine=None) ->
+  FullGameFeatureFrame` returns one row per batter-game, using the starter
+  matchup row as the feature snapshot and labeling whether the batter homered
+  anywhere in the game. `full_game_time_based_split(engine=None)` mirrors the
+  project train/val/test date windows.
 - **`eval.py`** — pure-function metrics + matplotlib plotters. `log_loss`, `brier_score`, `expected_calibration_error`, `reliability_curve`, `precision_at_top_k` (per-day semantics), `auc`, `naive_baseline_log_loss`, plus `plot_reliability`, `plot_feature_importance`, `plot_shap_summary`, `plot_prediction_histogram`.
 - **`artifacts.py`** — versioned persistence. `save_model(...) -> Path`, `load_model(version=None) -> LoadedModel`, `list_versions() -> list[ModelVersion]`, `promote_to_production(version)`, `compute_data_hash(X, y)`. Version IDs are `v{YYYYMMDD_HHMMSS}` (UTC). `load_model()` honors the plain-text `registry/PRODUCTION` pointer first, falling back to newest directory only when no pointer exists.
 - **`calibrate.py`** — isotonic post-hoc calibrator. `fit_calibrator(val_probs, val_labels) -> IsotonicRegression`, `apply_calibrator(cal, raw_probs) -> ndarray`, `save_calibrator(cal, version) -> Path`, `load_calibrator(version) -> IsotonicRegression`. Calibrator lives at `src/models/registry/v{version}/calibrator.joblib` — co-located with the model to prevent version-mixing bugs.
@@ -25,6 +31,12 @@ Most-common imports for other modules (Phase 6 API, inference pipelines):
 ```python
 from src.models.artifacts import load_model, LoadedModel, list_versions, promote_to_production
 from src.models.data import FEATURE_COLUMNS, FeatureFrame, load_training_data, time_based_split
+from src.models.full_game_data import (
+    FULL_GAME_FEATURE_COLUMNS,
+    FullGameFeatureFrame,
+    full_game_time_based_split,
+    load_full_game_training_data,
+)
 from src.models.eval import log_loss, brier_score, expected_calibration_error, precision_at_top_k
 from src.models.train import TrainingConfig, TrainingResult, train_baseline
 from src.models.calibrate import fit_calibrator, apply_calibrator, save_calibrator, load_calibrator
@@ -81,6 +93,9 @@ src/models/registry/v{YYYYMMDD_HHMMSS}/
 ## Gotchas
 
 - **`FEATURE_COLUMNS` is enumerated at module-load time** from `MatchupFeature`. Excluded columns: `game_date`, `game_pk`, `batter_id`, `pitcher_id` (keys), `hr_on_pa` (label), `is_historical` (flag), `built_at` (audit), two string columns (`p_primary_pitch`, `ctx_day_night`), and the two leaky rest-day diagnostics. Add a new numeric feature column to the ORM and it's automatically in `FEATURE_COLUMNS` for future training runs — no manual update. Currently 118 features.
+- **`FULL_GAME_FEATURE_COLUMNS` excludes `opp_team_id`.** The full-game model
+  keeps the numeric bullpen-strength fields (`opp_bp_*`) but drops the raw team
+  identifier to avoid treating MLBAM team IDs as ordered numeric signal.
 - **Inference uses the artifact schema, not live `FEATURE_COLUMNS`.** `generate_predictions_for_date` validates every saved feature name exists on `matchup_features`, then selects/builds the frame in exactly that artifact order. This prevents a new ORM feature column from silently reshaping an older production model.
 - **Inference defensively ranks future duplicates.** If stale future
   `matchup_features` rows exist for the same `(game_pk, batter_id)`, the
