@@ -8,6 +8,12 @@ Scope boundary: **no API** (Phase 6), **no daily inference pipeline** (Phase 6+)
 ## Entry points
 
 - **`train.py`** — orchestrator. `train_baseline(config: TrainingConfig | None = None, ...) -> TrainingResult` runs the full pipeline: load → time-based split → fit XGBoost → predict → compute metrics → render plots → persist artifact. CLI wrapper `python -m src.models.train` uses defaults.
+- **`train_full_game.py`** — full-game trainer.
+  `train_full_game_model(config: FullGameTrainingConfig | None = None, ...) ->
+  FullGameTrainingResult` trains XGBoost against the full-game label, fits an
+  isotonic calibrator on validation predictions, and saves artifact metadata
+  with `target="full_game_hr"`. CLI wrapper:
+  `python -m src.models.train_full_game`.
 - **`data.py`** — feature loading + split. `load_training_data(start_date, end_date, *, engine=None) -> FeatureFrame` pulls `matchup_features` WHERE `is_historical=True AND hr_on_pa IS NOT NULL`. `time_based_split(engine=None) -> TrainValTest` materializes the three fixed-date frames. `FEATURE_COLUMNS: list[str]` is the single source of truth for column order.
 - **`full_game_data.py`** — full-game target loading + split.
   `load_full_game_training_data(start_date, end_date, *, engine=None) ->
@@ -39,6 +45,11 @@ from src.models.full_game_data import (
 )
 from src.models.eval import log_loss, brier_score, expected_calibration_error, precision_at_top_k
 from src.models.train import TrainingConfig, TrainingResult, train_baseline
+from src.models.train_full_game import (
+    FullGameTrainingConfig,
+    FullGameTrainingResult,
+    train_full_game_model,
+)
 from src.models.calibrate import fit_calibrator, apply_calibrator, save_calibrator, load_calibrator
 from src.models.per_game_hr import GameMatchupInputs, per_game_hr_distribution
 from src.models.rollup import per_game_probability, poisson_binomial_pmf, GameHRDistribution

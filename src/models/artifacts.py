@@ -63,6 +63,7 @@ def save_model(
     eval_report: str = "",
     registry_root: Path | None = None,
     timestamp: datetime | None = None,  # injectable for tests
+    extra_metadata: dict[str, Any] | None = None,
 ) -> Path:
     """Create src/models/registry/v{ts}/ with all artifacts. Returns version dir."""
     root = registry_root or _DEFAULT_REGISTRY
@@ -96,6 +97,8 @@ def save_model(
         "num_features": len(feature_columns),
         "created_at_utc": ts.isoformat(),
     }
+    if extra_metadata:
+        meta.update(extra_metadata)
     (version_dir / "training_metadata.json").write_text(json.dumps(meta, indent=2))
 
     # 4. Metrics
