@@ -49,3 +49,14 @@ def per_game_hr_distribution(inputs: GameMatchupInputs) -> GameHRDistribution:
     if inputs.bullpen_prob is not None:
         probs.append(float(inputs.bullpen_prob))
     return per_game_probability(probs)
+
+
+def full_game_hr_distribution(full_game_prob: float) -> GameHRDistribution:
+    """Represent an already-full-game ``P(>=1 HR)`` as a distribution.
+
+    A full-game model directly predicts the Bernoulli event "this batter
+    homers at least once in this game." Do not compose it again with starter
+    or bullpen probabilities. The resulting distribution has mass only on
+    0 and 1 because the model does not estimate multi-HR count probabilities.
+    """
+    return per_game_probability([float(full_game_prob)])

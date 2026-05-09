@@ -34,7 +34,11 @@ from src.core.models import MatchupFeature, Prediction
 from src.core.time import current_mlb_date
 from src.models.artifacts import load_model
 from src.models.calibrate import apply_calibrator, load_calibrator
-from src.models.per_game_hr import GameMatchupInputs, per_game_hr_distribution
+from src.models.per_game_hr import (
+    GameMatchupInputs,
+    full_game_hr_distribution,
+    per_game_hr_distribution,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -100,6 +104,8 @@ def generate_predictions_for_date(
             extra={"model_version": loaded.version},
         )
         calibrator = None
+
+    is_full_game_model = loaded.training_metadata.get("target") == "full_game_hr"
 
     # Ensemble support (Option 3): if training_metadata declares an
     # ``ensemble`` block, look for a sibling LightGBM booster at
@@ -249,7 +255,32 @@ def generate_predictions_for_date(
         projected_pa_value = r["projected_pa_for_output"]
         projected_pas = float(projected_pa_value) if projected_pa_value is not None else 4.0
 
-        dist = per_game_hr_distribution(GameMatchupInputs(starter_prob=cal_p, bullpen_prob=None))
+        if is_full_game_model:
+            dist = full_game_hr_distribution(cal_p)
+            matchup_components = {
+                "probability_semantics": "full_game_hr",
+                "full_game_raw_prob": raw_p,
+                "full_game_calibrated_prob": cal_p,
+                # Backward-compatible diagnostic keys used by the API/UI.
+                # For full-game artifacts these are aliases for the starter-row
+                # feature snapshot, not an old starter-only model output.
+                "starter_raw_prob": raw_p,
+                "starter_calibrated_prob": cal_p,
+                "starter_signal_source": "full_game_artifact_starter_row",
+                "bullpen_raw_prob": None,
+                "bullpen_calibrated_prob": None,
+            }
+        else:
+            dist = per_game_hr_distribution(
+                GameMatchupInputs(starter_prob=cal_p, bullpen_prob=None)
+            )
+            matchup_components = {
+                "probability_semantics": "starter_matchup_hr",
+                "starter_raw_prob": raw_p,
+                "starter_calibrated_prob": cal_p,
+                "bullpen_raw_prob": None,
+                "bullpen_calibrated_prob": None,
+            }
 
         # Top-K SHAP contributions by absolute value, preserve sign
         contributions: dict[str, float] = {}
@@ -266,12 +297,7 @@ def generate_predictions_for_date(
                 "pitcher_id": int(r["pitcher_id"]),
                 "game_date": r["game_date"],
                 "model_version": loaded.version,
-                "matchup_components": {
-                    "starter_raw_prob": raw_p,
-                    "starter_calibrated_prob": cal_p,
-                    "bullpen_raw_prob": None,
-                    "bullpen_calibrated_prob": None,
-                },
+                "matchup_components": matchup_components,
                 "projected_pas": projected_pas,
                 "prob_at_least_one_hr": dist.prob_at_least_one,
                 "prob_at_least_two_hr": dist.prob_at_least_two,

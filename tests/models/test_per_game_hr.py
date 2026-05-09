@@ -5,7 +5,11 @@ from __future__ import annotations
 import dataclasses
 
 import pytest
-from src.models.per_game_hr import GameMatchupInputs, per_game_hr_distribution
+from src.models.per_game_hr import (
+    GameMatchupInputs,
+    full_game_hr_distribution,
+    per_game_hr_distribution,
+)
 
 
 def test_starter_only_uses_prob_as_game_level() -> None:
@@ -66,3 +70,10 @@ def test_frozen_dataclass_inputs() -> None:
     inputs = GameMatchupInputs(starter_prob=0.1)
     with pytest.raises(dataclasses.FrozenInstanceError):
         inputs.starter_prob = 0.2  # type: ignore[misc]
+
+
+def test_full_game_distribution_uses_probability_directly() -> None:
+    dist = full_game_hr_distribution(0.1234)
+    assert dist.prob_at_least_one == pytest.approx(0.1234)
+    assert dist.prob_at_least_two == pytest.approx(0.0)
+    assert dist.expected_hrs == pytest.approx(0.1234)

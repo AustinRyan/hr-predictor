@@ -24,7 +24,7 @@ Scope boundary: **no API** (Phase 6), **no daily inference pipeline** (Phase 6+)
 - **`eval.py`** — pure-function metrics + matplotlib plotters. `log_loss`, `brier_score`, `expected_calibration_error`, `reliability_curve`, `precision_at_top_k` (per-day semantics), `auc`, `naive_baseline_log_loss`, plus `plot_reliability`, `plot_feature_importance`, `plot_shap_summary`, `plot_prediction_histogram`.
 - **`artifacts.py`** — versioned persistence. `save_model(...) -> Path`, `load_model(version=None) -> LoadedModel`, `list_versions() -> list[ModelVersion]`, `promote_to_production(version)`, `compute_data_hash(X, y)`. Version IDs are `v{YYYYMMDD_HHMMSS}` (UTC). `load_model()` honors the plain-text `registry/PRODUCTION` pointer first, falling back to newest directory only when no pointer exists.
 - **`calibrate.py`** — isotonic post-hoc calibrator. `fit_calibrator(val_probs, val_labels) -> IsotonicRegression`, `apply_calibrator(cal, raw_probs) -> ndarray`, `save_calibrator(cal, version) -> Path`, `load_calibrator(version) -> IsotonicRegression`. Calibrator lives at `src/models/registry/v{version}/calibrator.joblib` — co-located with the model to prevent version-mixing bugs.
-- **`per_game_hr.py`** — per-game composition of per-matchup probabilities. `per_game_hr_distribution(GameMatchupInputs) -> GameHRDistribution` composes the starter-matchup probability (and optionally a bullpen-matchup probability) into a game-level distribution via the independent-matchups formula. Phase 3's label `hr_on_pa` is per-(batter, pitcher, game), so the model's calibrated output is already a per-matchup game-level probability — no PA-level compounding is applied. Replaces the original `pa_sequence.py` (see `phases/phase5/NOTES.md` "Rollup semantic bug" for the fix narrative).
+- **`per_game_hr.py`** — per-game composition of per-matchup probabilities. `per_game_hr_distribution(GameMatchupInputs) -> GameHRDistribution` composes the starter-matchup probability (and optionally a bullpen-matchup probability) into a game-level distribution via the independent-matchups formula. Phase 3's label `hr_on_pa` is per-(batter, pitcher, game), so the model's calibrated output is already a per-matchup game-level probability — no PA-level compounding is applied. `full_game_hr_distribution(full_game_prob)` represents an already sportsbook-compatible full-game probability directly and is used for artifacts whose metadata declares `target="full_game_hr"`.
 - **`rollup.py`** — exact Poisson-binomial PMF + per-game distribution. `poisson_binomial_pmf(probs) -> list[float]` via direct convolution (O(n²), near-instant for the small inputs we feed it); `per_game_probability(probs) -> GameHRDistribution` exposes `prob_at_least_one`, `prob_at_least_two`, `prob_at_least_three`, `expected_hrs`, and `pmf`. The math is unchanged from the original Phase 5 implementation — it's correct for combining any independent-event probabilities; `per_game_hr.py` now feeds it 1–2 per-matchup probabilities instead of the originally-incorrect 4 per-PA copies.
 - **`odds.py`** — pure sportsbook math helpers: American odds to implied
   probability, fair American odds, model-vs-market edge, and one-unit EV.
@@ -51,7 +51,11 @@ from src.models.train_full_game import (
     train_full_game_model,
 )
 from src.models.calibrate import fit_calibrator, apply_calibrator, save_calibrator, load_calibrator
-from src.models.per_game_hr import GameMatchupInputs, per_game_hr_distribution
+from src.models.per_game_hr import (
+    GameMatchupInputs,
+    full_game_hr_distribution,
+    per_game_hr_distribution,
+)
 from src.models.rollup import per_game_probability, poisson_binomial_pmf, GameHRDistribution
 from src.models.odds import american_to_implied_probability, expected_value_per_unit
 ```
@@ -69,6 +73,13 @@ calibrated = apply_calibrator(cal, raw)        # per-matchup (per batter-pitcher
 # then for each matchup row: per_game_hr_distribution(GameMatchupInputs(starter_prob=calibrated[i]))
 # when a bullpen prediction is available (Phase 6+): pass bullpen_prob=... to combine via 1 - (1-P_s)(1-P_b).
 ```
+
+Full-game artifacts are different: `generate_predictions_for_date` detects
+`training_metadata.target == "full_game_hr"` and writes the calibrated model
+output directly to `predictions.prob_at_least_one_hr` via
+`full_game_hr_distribution()`. It also stores
+`matchup_components.full_game_calibrated_prob` and keeps the old
+`starter_calibrated_prob` key as a backward-compatible alias for API/UI code.
 
 ## Internal dependencies
 

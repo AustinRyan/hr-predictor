@@ -18,7 +18,11 @@ from src.models.data import FEATURE_COLUMNS
 from src.models.inference import _validated_feature_schema, generate_predictions_for_date
 
 
-def _train_tiny_model_and_calibrator(tmp_registry: Path) -> tuple[str, xgboost.Booster]:
+def _train_tiny_model_and_calibrator(
+    tmp_registry: Path,
+    *,
+    extra_metadata: dict | None = None,
+) -> tuple[str, xgboost.Booster]:
     """Train a tiny model + calibrator, save to a test registry, return version."""
     rng = np.random.default_rng(seed=42)
     X = pd.DataFrame(rng.random((200, len(FEATURE_COLUMNS))), columns=FEATURE_COLUMNS)
@@ -41,6 +45,7 @@ def _train_tiny_model_and_calibrator(tmp_registry: Path) -> tuple[str, xgboost.B
         data_hash="test_hash",
         registry_root=tmp_registry,
         timestamp=ts,
+        extra_metadata=extra_metadata,
     )
 
     # Fit calibrator on same data (sanity — isotonic degenerates but works)
@@ -126,6 +131,59 @@ def test_generate_predictions_end_to_end(
     assert row["matchup_components"]["starter_calibrated_prob"] is not None
     assert row["feature_contributions"] is None or isinstance(row["feature_contributions"], dict)
     assert row["projected_pas"] == pytest.approx(4.29)
+
+
+@pytest.mark.integration
+def test_full_game_model_probability_drives_prediction(
+    test_engine: Engine,
+    clean_tables,
+    tmp_registry: Path,
+) -> None:
+    """Full-game artifacts should write their calibrated full-game probability."""
+    version, _ = _train_tiny_model_and_calibrator(
+        tmp_registry,
+        extra_metadata={
+            "target": "full_game_hr",
+            "uses_team_bullpen_features": True,
+            "probability_semantics": "batter hits at least one HR in the full game",
+        },
+    )
+
+    session_factory = sessionmaker(bind=test_engine, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        s.execute(text("INSERT INTO parks (park_id, name) VALUES (99804, 'full-game park')"))
+        s.execute(text("""
+                INSERT INTO matchup_features
+                  (game_date, game_pk, batter_id, pitcher_id, is_historical, park_id,
+                   ctx_projected_pa, b_barrel_pct_season, b_avg_ev_season,
+                   opp_bp_hr_per_pa_30d)
+                VALUES ('2026-04-23', 9995001, 999501, 999601, FALSE, 99804,
+                        4.60, 0.18, 96.0, 0.08)
+                """))
+        s.commit()
+
+    from src.models import artifacts
+
+    orig_default = artifacts._DEFAULT_REGISTRY
+    artifacts._DEFAULT_REGISTRY = tmp_registry
+    try:
+        n = generate_predictions_for_date(
+            date(2026, 4, 23),
+            model_version=version,
+            engine=test_engine,
+        )
+    finally:
+        artifacts._DEFAULT_REGISTRY = orig_default
+
+    assert n == 1
+    with session_factory() as s:
+        row = s.execute(text("SELECT * FROM predictions WHERE game_pk = 9995001")).mappings().one()
+
+    components = row["matchup_components"]
+    assert components["probability_semantics"] == "full_game_hr"
+    assert components["starter_calibrated_prob"] is not None
+    assert components["full_game_calibrated_prob"] is not None
+    assert row["prob_at_least_one_hr"] == pytest.approx(components["full_game_calibrated_prob"])
 
 
 @pytest.mark.integration
