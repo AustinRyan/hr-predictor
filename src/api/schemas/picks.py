@@ -39,6 +39,9 @@ class PickSummary(BaseModel):
     prob_at_least_one_hr: float = Field(ge=0.0, le=1.0)
     expected_hrs: float | None = None
     model_rank_score: float | None = None
+    probability_semantics: str | None = None
+    full_game_probability: float | None = Field(default=None, ge=0.0, le=1.0)
+    starter_matchup_probability: float | None = Field(default=None, ge=0.0, le=1.0)
 
     # Latest best available batter-HR Over odds, if sportsbook odds have
     # been ingested for this slate/player.
@@ -66,6 +69,18 @@ class PickSummary(BaseModel):
     wind_carry_cf: float | None = None
     temperature_f: float | None = None
     air_density_relative: float | None = None
+
+    # Opposing team bullpen context used by full-game model artifacts.
+    opp_team_id: int | None = None
+    opp_bp_hr_per_pa_30d: float | None = None
+    opp_bp_hr_per_pa_season: float | None = None
+    opp_bp_barrel_pct_allowed_30d: float | None = None
+    opp_bp_barrel_pct_allowed_season: float | None = None
+    opp_bp_hardhit_pct_allowed_30d: float | None = None
+    opp_bp_hardhit_pct_allowed_season: float | None = None
+    opp_bp_lhb_hr_per_pa_season: float | None = None
+    opp_bp_rhb_hr_per_pa_season: float | None = None
+    opp_bp_pitches_last_3d: float | None = None
 
     top_contributing_features: list[FeatureContribution] = Field(default_factory=list)
 

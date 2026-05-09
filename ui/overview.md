@@ -74,6 +74,12 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
   still have a visible ordering signal. Use `lib/probability-format.ts` for
   board-facing probability text; headline HR probabilities render to three
   decimals rather than the earlier one-decimal display.
+- Full-game model fields flow through `PickSummary -> picks.ts -> adapters.ts`.
+  The evidence drawer shows `FULL` and `START` probabilities in the `MODEL`
+  group when available, plus a dedicated `BULLPEN` group from `opp_bp_*`
+  values (`HR/PA`, barrel%, hard-hit%, handed split, recent load). Keep this
+  display nullable-safe because old predictions and starter-only artifacts
+  will not have every full-game key.
 - Mobile filter controls should remain touch-sized (44px minimum) and the
   `MODEL LIFT` sort must continue using `sortPicksForBoard` rather than
   duplicating ad hoc comparator logic in the component.

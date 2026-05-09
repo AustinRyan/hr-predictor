@@ -99,6 +99,10 @@ class PredictionBreakdown(BaseModel):
     expected_hrs: float | None
     starter_raw_prob: float | None
     starter_calibrated_prob: float | None
+    probability_semantics: str | None = None
+    full_game_raw_prob: float | None = None
+    full_game_calibrated_prob: float | None = None
+    starter_signal_source: str | None = None
     bullpen_raw_prob: float | None
     bullpen_calibrated_prob: float | None
     top_contributing_features: list[FeatureContribution]

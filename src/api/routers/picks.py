@@ -75,9 +75,25 @@ _PICKS_TODAY_SQL = text("""
         p.prob_at_least_one_hr,
         p.expected_hrs,
         COALESCE(
+            NULLIF(p.matchup_components->>'full_game_raw_prob', '')::double precision,
             NULLIF(p.matchup_components->>'starter_raw_prob', '')::double precision,
             p.prob_at_least_one_hr
         ) AS model_rank_score,
+        COALESCE(
+            NULLIF(p.matchup_components->>'full_game_calibrated_prob', '')::double precision,
+            p.prob_at_least_one_hr
+        ) AS full_game_probability,
+        NULLIF(
+            p.matchup_components->>'starter_calibrated_prob',
+            ''
+        )::double precision AS starter_matchup_probability,
+        COALESCE(
+            NULLIF(p.matchup_components->>'probability_semantics', ''),
+            CASE
+                WHEN p.matchup_components ? 'full_game_calibrated_prob' THEN 'full_game_hr'
+                ELSE 'starter_matchup_hr'
+            END
+        ) AS probability_semantics,
         p.feature_contributions,
         p.model_version,
         bo.bookmaker_key AS odds_bookmaker_key,
@@ -104,6 +120,16 @@ _PICKS_TODAY_SQL = text("""
         mf.wx_wind_carry_cf,
         mf.wx_temperature_f,
         mf.wx_air_density_relative,
+        mf.opp_team_id,
+        mf.opp_bp_hr_per_pa_30d,
+        mf.opp_bp_hr_per_pa_season,
+        mf.opp_bp_barrel_pct_allowed_30d,
+        mf.opp_bp_barrel_pct_allowed_season,
+        mf.opp_bp_hardhit_pct_allowed_30d,
+        mf.opp_bp_hardhit_pct_allowed_season,
+        mf.opp_bp_lhb_hr_per_pa_season,
+        mf.opp_bp_rhb_hr_per_pa_season,
+        mf.opp_bp_pitches_last_3d,
         tm_home.abbr AS home_abbr,
         tm_away.abbr AS away_abbr,
         ds.home_team_id,
@@ -159,6 +185,7 @@ _PICKS_TODAY_SQL = text("""
          END DESC NULLS LAST,
         p.prob_at_least_one_hr DESC NULLS LAST,
         COALESCE(
+            NULLIF(p.matchup_components->>'full_game_raw_prob', '')::double precision,
             NULLIF(p.matchup_components->>'starter_raw_prob', '')::double precision,
             p.prob_at_least_one_hr
         ) DESC NULLS LAST,
@@ -212,6 +239,9 @@ def _row_to_pick(row) -> PickSummary:
         prob_at_least_one_hr=model_p,
         expected_hrs=(float(row["expected_hrs"]) if row["expected_hrs"] is not None else None),
         model_rank_score=_f("model_rank_score"),
+        probability_semantics=row["probability_semantics"],
+        full_game_probability=_f("full_game_probability"),
+        starter_matchup_probability=_f("starter_matchup_probability"),
         odds_bookmaker=row["odds_bookmaker"],
         odds_bookmaker_key=row["odds_bookmaker_key"],
         odds_price_american=(int(odds_price) if odds_price is not None else None),
@@ -234,6 +264,16 @@ def _row_to_pick(row) -> PickSummary:
         wind_carry_cf=_f("wx_wind_carry_cf"),
         temperature_f=_f("wx_temperature_f"),
         air_density_relative=_f("wx_air_density_relative"),
+        opp_team_id=(int(row["opp_team_id"]) if row["opp_team_id"] is not None else None),
+        opp_bp_hr_per_pa_30d=_f("opp_bp_hr_per_pa_30d"),
+        opp_bp_hr_per_pa_season=_f("opp_bp_hr_per_pa_season"),
+        opp_bp_barrel_pct_allowed_30d=_f("opp_bp_barrel_pct_allowed_30d"),
+        opp_bp_barrel_pct_allowed_season=_f("opp_bp_barrel_pct_allowed_season"),
+        opp_bp_hardhit_pct_allowed_30d=_f("opp_bp_hardhit_pct_allowed_30d"),
+        opp_bp_hardhit_pct_allowed_season=_f("opp_bp_hardhit_pct_allowed_season"),
+        opp_bp_lhb_hr_per_pa_season=_f("opp_bp_lhb_hr_per_pa_season"),
+        opp_bp_rhb_hr_per_pa_season=_f("opp_bp_rhb_hr_per_pa_season"),
+        opp_bp_pitches_last_3d=_f("opp_bp_pitches_last_3d"),
         top_contributing_features=contributions,
         model_version=row["model_version"],
     )

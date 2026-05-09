@@ -18,6 +18,9 @@ type Row = {
   prob_at_least_one_hr: string; // numeric comes back as string
   expected_hrs: string | null;
   model_rank_score: string | null;
+  full_game_probability: string | null;
+  starter_matchup_probability: string | null;
+  probability_semantics: string | null;
   feature_contributions: Record<string, number> | null;
   model_version: string;
   odds_bookmaker_key: string | null;
@@ -47,6 +50,16 @@ type Row = {
   wx_wind_carry_cf: string | null;
   wx_temperature_f: string | null;
   wx_air_density_relative: string | null;
+  opp_team_id: number | null;
+  opp_bp_hr_per_pa_30d: string | null;
+  opp_bp_hr_per_pa_season: string | null;
+  opp_bp_barrel_pct_allowed_30d: string | null;
+  opp_bp_barrel_pct_allowed_season: string | null;
+  opp_bp_hardhit_pct_allowed_30d: string | null;
+  opp_bp_hardhit_pct_allowed_season: string | null;
+  opp_bp_lhb_hr_per_pa_season: string | null;
+  opp_bp_rhb_hr_per_pa_season: string | null;
+  opp_bp_pitches_last_3d: string | null;
   team_abbr: string | null;
   home_abbr: string | null;
   away_abbr: string | null;
@@ -61,7 +74,7 @@ function topContribs(raw: Record<string, number> | null): FeatureContribution[] 
 }
 
 function toPick(row: Row): PickSummary {
-  const n = (s: string | null): number | null => (s === null ? null : Number(s));
+  const n = (s: string | number | null): number | null => (s === null ? null : Number(s));
   return {
     batter_id: Number(row.batter_id),
     batter_name: row.batter_name,
@@ -85,6 +98,9 @@ function toPick(row: Row): PickSummary {
     prob_at_least_one_hr: Number(row.prob_at_least_one_hr),
     expected_hrs: n(row.expected_hrs),
     model_rank_score: n(row.model_rank_score),
+    probability_semantics: row.probability_semantics,
+    full_game_probability: n(row.full_game_probability),
+    starter_matchup_probability: n(row.starter_matchup_probability),
     odds_bookmaker: row.odds_bookmaker,
     odds_bookmaker_key: row.odds_bookmaker_key,
     odds_price_american:
@@ -107,6 +123,16 @@ function toPick(row: Row): PickSummary {
     wind_carry_cf: n(row.wx_wind_carry_cf),
     temperature_f: n(row.wx_temperature_f),
     air_density_relative: n(row.wx_air_density_relative),
+    opp_team_id: row.opp_team_id === null ? null : Number(row.opp_team_id),
+    opp_bp_hr_per_pa_30d: n(row.opp_bp_hr_per_pa_30d),
+    opp_bp_hr_per_pa_season: n(row.opp_bp_hr_per_pa_season),
+    opp_bp_barrel_pct_allowed_30d: n(row.opp_bp_barrel_pct_allowed_30d),
+    opp_bp_barrel_pct_allowed_season: n(row.opp_bp_barrel_pct_allowed_season),
+    opp_bp_hardhit_pct_allowed_30d: n(row.opp_bp_hardhit_pct_allowed_30d),
+    opp_bp_hardhit_pct_allowed_season: n(row.opp_bp_hardhit_pct_allowed_season),
+    opp_bp_lhb_hr_per_pa_season: n(row.opp_bp_lhb_hr_per_pa_season),
+    opp_bp_rhb_hr_per_pa_season: n(row.opp_bp_rhb_hr_per_pa_season),
+    opp_bp_pitches_last_3d: n(row.opp_bp_pitches_last_3d),
     top_contributing_features: topContribs(row.feature_contributions),
     model_version: row.model_version,
   };
@@ -203,9 +229,25 @@ async function queryForDate(
       p.prob_at_least_one_hr,
       p.expected_hrs,
       COALESCE(
+        NULLIF(p.matchup_components->>'full_game_raw_prob', '')::double precision,
         NULLIF(p.matchup_components->>'starter_raw_prob', '')::double precision,
         p.prob_at_least_one_hr
       ) AS model_rank_score,
+      COALESCE(
+        NULLIF(p.matchup_components->>'full_game_calibrated_prob', '')::double precision,
+        p.prob_at_least_one_hr
+      ) AS full_game_probability,
+      NULLIF(
+        p.matchup_components->>'starter_calibrated_prob',
+        ''
+      )::double precision AS starter_matchup_probability,
+      COALESCE(
+        NULLIF(p.matchup_components->>'probability_semantics', ''),
+        CASE
+          WHEN p.matchup_components ? 'full_game_calibrated_prob' THEN 'full_game_hr'
+          ELSE 'starter_matchup_hr'
+        END
+      ) AS probability_semantics,
       p.feature_contributions,
       p.model_version,
       bo.bookmaker_key AS odds_bookmaker_key,
@@ -254,6 +296,16 @@ async function queryForDate(
       mf.wx_wind_carry_cf,
       mf.wx_temperature_f,
       mf.wx_air_density_relative,
+      mf.opp_team_id,
+      mf.opp_bp_hr_per_pa_30d,
+      mf.opp_bp_hr_per_pa_season,
+      mf.opp_bp_barrel_pct_allowed_30d,
+      mf.opp_bp_barrel_pct_allowed_season,
+      mf.opp_bp_hardhit_pct_allowed_30d,
+      mf.opp_bp_hardhit_pct_allowed_season,
+      mf.opp_bp_lhb_hr_per_pa_season,
+      mf.opp_bp_rhb_hr_per_pa_season,
+      mf.opp_bp_pitches_last_3d,
       COALESCE(
         tm_batter.abbr,
         CASE
@@ -307,6 +359,7 @@ async function queryForDate(
            ELSE p.prob_at_least_one_hr END DESC NULLS LAST,
       p.prob_at_least_one_hr DESC NULLS LAST,
       COALESCE(
+        NULLIF(p.matchup_components->>'full_game_raw_prob', '')::double precision,
         NULLIF(p.matchup_components->>'starter_raw_prob', '')::double precision,
         p.prob_at_least_one_hr
       ) DESC NULLS LAST,

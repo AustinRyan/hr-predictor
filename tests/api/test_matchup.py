@@ -112,7 +112,15 @@ def _seed_prediction(
                 "p": pitcher_id,
                 "d": game_date,
                 "mv": model_version,
-                "mc": '{"starter_raw_prob": 0.24, "starter_calibrated_prob": 0.22, "bullpen_raw_prob": null, "bullpen_calibrated_prob": null}',
+                "mc": (
+                    '{"probability_semantics": "full_game_hr", '
+                    '"full_game_raw_prob": 0.25, '
+                    '"full_game_calibrated_prob": 0.22, '
+                    '"starter_raw_prob": 0.24, '
+                    '"starter_calibrated_prob": 0.19, '
+                    '"starter_signal_source": "full_game_artifact_starter_row", '
+                    '"bullpen_raw_prob": null, "bullpen_calibrated_prob": null}'
+                ),
                 "fc": '{"b_barrel_pct_season": 0.05, "park_hr_factor_hand": 0.04, "wx_wind_carry_cf": 0.03, "b_p90_ev_season": 0.02, "p_tto_penalty": 0.01, "ctx_same_hand": -0.01, "b_pulled_fb_pct_season": 0.01, "p_hr_per_9_season": 0.008, "b_hr_per_pa_season": 0.007, "ctx_batting_order": 0.005, "ctx_projected_pa": 0.004}',
             },
         )
@@ -175,7 +183,10 @@ async def test_matchup_detail_full(client) -> None:
         assert body["weather"]["wind_carry_cf"] == 3.2
         assert body["prediction"] is not None
         assert body["prediction"]["prob_at_least_one_hr"] == 0.22
-        assert body["prediction"]["starter_calibrated_prob"] == 0.22
+        assert body["prediction"]["probability_semantics"] == "full_game_hr"
+        assert body["prediction"]["full_game_calibrated_prob"] == 0.22
+        assert body["prediction"]["starter_calibrated_prob"] == 0.19
+        assert body["prediction"]["starter_signal_source"] == "full_game_artifact_starter_row"
         assert body["prediction"]["model_version"] == model_version
         assert len(body["prediction"]["top_contributing_features"]) == 10
         # Order: top feature has largest absolute contribution

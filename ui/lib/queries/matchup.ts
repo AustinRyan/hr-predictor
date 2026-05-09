@@ -73,15 +73,19 @@ export async function matchupDetail(
   let prediction: PredictionBreakdown | null = null;
   if (predRows[0]) {
     const p = predRows[0];
-    const mc = (p.matchup_components ?? {}) as Record<string, number | null>;
+    const mc = (p.matchup_components ?? {}) as Record<string, number | string | null>;
     prediction = {
       prob_at_least_one_hr: n(p.prob_at_least_one_hr),
       prob_at_least_two_hr: n(p.prob_at_least_two_hr),
       expected_hrs: n(p.expected_hrs),
-      starter_raw_prob: mc.starter_raw_prob ?? null,
-      starter_calibrated_prob: mc.starter_calibrated_prob ?? null,
-      bullpen_raw_prob: mc.bullpen_raw_prob ?? null,
-      bullpen_calibrated_prob: mc.bullpen_calibrated_prob ?? null,
+      starter_raw_prob: n(mc.starter_raw_prob),
+      starter_calibrated_prob: n(mc.starter_calibrated_prob),
+      probability_semantics: (mc.probability_semantics as string | null) ?? null,
+      full_game_raw_prob: n(mc.full_game_raw_prob),
+      full_game_calibrated_prob: n(mc.full_game_calibrated_prob),
+      starter_signal_source: (mc.starter_signal_source as string | null) ?? null,
+      bullpen_raw_prob: n(mc.bullpen_raw_prob),
+      bullpen_calibrated_prob: n(mc.bullpen_calibrated_prob),
       top_contributing_features: topContribs(
         p.feature_contributions as Record<string, number> | null,
       ),

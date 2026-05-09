@@ -25,6 +25,7 @@ def test_feature_columns_excludes_keys_and_label() -> None:
         "built_at",
         "p_primary_pitch",
         "ctx_day_night",
+        "opp_team_id",
         # Diagnostic exclusion (post-Phase 6): rest-day features were
         # dominating SHAP and crowding out real pitcher-quality signal.
         "ctx_pitcher_days_rest",
@@ -40,6 +41,7 @@ def test_feature_columns_includes_expected_families() -> None:
     assert "park_hr_factor_hand" in FEATURE_COLUMNS
     assert "wx_temperature_f" in FEATURE_COLUMNS
     assert "ctx_batting_order" in FEATURE_COLUMNS
+    assert "opp_bp_hr_per_pa_30d" in FEATURE_COLUMNS
 
 
 def test_feature_columns_count_reasonable() -> None:

@@ -30,6 +30,9 @@ export type PickSummary = {
   prob_at_least_one_hr: number;
   expected_hrs: number | null;
   model_rank_score: number | null;
+  probability_semantics: string | null;
+  full_game_probability: number | null;
+  starter_matchup_probability: number | null;
 
   odds_bookmaker: string | null;
   odds_bookmaker_key: string | null;
@@ -52,6 +55,17 @@ export type PickSummary = {
   wind_carry_cf: number | null;
   temperature_f: number | null;
   air_density_relative: number | null;
+
+  opp_team_id: number | null;
+  opp_bp_hr_per_pa_30d: number | null;
+  opp_bp_hr_per_pa_season: number | null;
+  opp_bp_barrel_pct_allowed_30d: number | null;
+  opp_bp_barrel_pct_allowed_season: number | null;
+  opp_bp_hardhit_pct_allowed_30d: number | null;
+  opp_bp_hardhit_pct_allowed_season: number | null;
+  opp_bp_lhb_hr_per_pa_season: number | null;
+  opp_bp_rhb_hr_per_pa_season: number | null;
+  opp_bp_pitches_last_3d: number | null;
 
   top_contributing_features: FeatureContribution[];
 
@@ -167,6 +181,10 @@ export type PredictionBreakdown = {
   expected_hrs: number | null;
   starter_raw_prob: number | null;
   starter_calibrated_prob: number | null;
+  probability_semantics: string | null;
+  full_game_raw_prob: number | null;
+  full_game_calibrated_prob: number | null;
+  starter_signal_source: string | null;
   bullpen_raw_prob: number | null;
   bullpen_calibrated_prob: number | null;
   top_contributing_features: FeatureContribution[];

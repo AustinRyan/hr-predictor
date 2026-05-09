@@ -1,9 +1,9 @@
 # HR Predictor — Abstract
 
-**Updated:** 2026-05-05 — odds and ranking hardening
+**Updated:** 2026-05-09 — bullpen/full-game probability branch
 
 ## Current phase
-**Phase 8 — LangGraph explanation agent (optional)** — not started.
+**Post-Phase 7 modeling hardening** — branch `codex/bullpen-full-game-probability-plan` is adding opponent bullpen features and full-game HR probability plumbing before any merge to main.
 
 ## Project elevator pitch
 Per-game MLB home-run probability predictor for prop-betting decision support. Local-first Python/Next.js stack. Trained on Statcast 2021–present. Calibration-first evaluation (Brier, ECE, reliability curves). Phased development; context clears between phases.
@@ -130,6 +130,7 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **Refresh duplicate-matchup hardening (2026-05-04):** future feature builds now prune stale non-historical rows when probable starters or lineups change; inference ranks duplicate batter/game rows by latest `built_at` and removes abandoned current-slate prediction rows before upserting. This fixed the `ON CONFLICT DO UPDATE command cannot affect row a second time` failure seen when an old probable starter row survived alongside the current one, and prevents old lineup picks from lingering on the leaderboard.
 - **Odds ladder hardening (2026-05-05):** PropLine's `batter_home_runs` payload can include alternate ladder lines (`2+ Home Runs`, `3+ Home Runs`) beside the 1+ HR line. The parser now persists only 1+ HR / Over 0.5 outcomes, and both API + Next.js queries filter old alternate-ladder snapshots. Model edge now compares the model's `P(at least one HR)` only against matching 1+ HR sportsbook odds.
 - **Calibrated-probability tie hardening (2026-05-05):** isotonic calibration creates real probability plateaus, so multiple players can share the exact same `P(HR)`. The API/Next query now exposes `model_rank_score` from `matchup_components.starter_raw_prob` and uses it as the deterministic tie-breaker after calibrated probability. Fair odds are also emitted canonically as `fair_odds_american` from the model probability, and the frontend now displays calibrated probabilities to three decimals plus raw-score tie-breaks.
+- **Bullpen/full-game branch (2026-05-09):** migration `0008_team_bullpen_features` adds opponent-team relief context (`opp_bp_*`) to `matchup_features`; `team_bullpen.py` computes leakage-safe relief aggregates excluding each team's starter. New full-game training/inference paths write `probability_semantics="full_game_hr"` and expose `full_game_probability`, starter comparison probability, and bullpen factors through API + Next.js. Raw `opp_team_id` is excluded from model features; `opp_bp_*` numeric rates remain.
 - **5 routes:** `/` (ISR 5m), `/model` (ISR 5m), `/player/[id]` (dynamic), `/matchup/[gamePk]/[batterId]` (dynamic), styled `/not-found`. Detail pages have no mock fallback — `notFound()` fires cleanly on missing data.
 - **Reliability chart is hand-rolled SVG.** The PROMPT mentioned recharts; it was removed mid-build because recharts' default visual language fights the stadium-brutalist aesthetic and the data shapes are simple enough that an ~80-line SVG component is cleaner. Future charts follow the same pattern.
 - **Next.js 16.2.4 (not 15).** `create-next-app` pulled the newer stable. All features used work identically to the 15 spec.
@@ -147,7 +148,7 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **Phase 4 SHAP plot generation is broken** on XGBoost 2.x (`feature_names_in_` setter). Pin `shap<0.45` or adapt to raw `Booster`. Low priority.
 - **Per-PA model ranking capacity is weak** (test AUC 0.68). Carried forward from Phase 4, surfaced in the Phase 5 sanity check — top-5 P(≥1 HR) is not dominated by elite sluggers. Resolving requires better features / ensemble / ranking-optimized objective; deferred to a post-Phase-6 modeling pass.
 - **`sanity_runner.py` relies on row-order alignment** between `time_based_split`'s `X` and a re-query of `matchup_features` with the same filters. Stable in practice but not formally guaranteed. A future small refactor can plumb `(game_pk, batter_id, pitcher_id)` through `FeatureFrame.metadata` to make alignment explicit.
-- **Per-game predictions are still starter-matchup only.** The composition layer can accept a bullpen term, but current inference writes `bullpen_* = null`, so `P(≥1 HR)` equals starter calibrated probability. True full-game HR probability needs either a batter-vs-bullpen component or a retrained batter-game target.
+- **Current production artifact is still starter-matchup only.** The branch now supports training and serving a full-game HR artifact with opponent-bullpen context, but `registry/PRODUCTION` remains `v20260423_231941` until a new full-game model is trained, evaluated, and explicitly promoted.
 - **Ensemble explanations are XGBoost-component SHAP only.** Production probability averages XGBoost + LightGBM, but `feature_contributions` still comes from XGBoost TreeSHAP/native `pred_contribs`. Treat explanations as directional drivers, not exact ensemble attribution.
 - **2026-04-28 hardening pass:** `load_model()` now honors `registry/PRODUCTION`; inference uses the artifact feature schema; slate defaults use MLB Eastern date; API prediction reads filter to loaded model version.
 

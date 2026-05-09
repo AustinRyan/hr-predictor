@@ -62,6 +62,9 @@ _EXCLUDED_COLUMNS: frozenset[str] = frozenset(
         # String columns requiring encoding we're not doing yet.
         "p_primary_pitch",
         "ctx_day_night",
+        # Identifier only. The team-specific bullpen rates are features;
+        # the raw MLBAM team id is not an ordered numeric signal.
+        "opp_team_id",
         # Diagnostic exclusion (post-Phase 6): the Phase 4 XGBoost was
         # overweighting pitcher/batter ``days_rest`` as a dominant
         # feature on daily inference — every top-probability matchup on

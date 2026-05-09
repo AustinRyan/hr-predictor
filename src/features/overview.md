@@ -3,8 +3,8 @@
 ## Purpose
 Assembles the wide feature row that feeds the HR-probability model. One row per
 `(game_date, game_pk, batter_id, pitcher_id)` matchup in `matchup_features`
-(partitioned yearly 2021..2027). 129 columns across batter form, pitcher
-profile, park, weather, and context. Reads Phase 1 + Phase 2 tables; writes
+(partitioned yearly 2021..2027). 139 columns across batter form, pitcher
+profile, bullpen, park, weather, and context. Reads Phase 1 + Phase 2 tables; writes
 `matchup_features`. No external network calls at feature-build time.
 
 ## Entry points
@@ -139,9 +139,10 @@ from src.features.batter_splits import regress_rate, LEAGUE_AVG_HR_PER_PA
 - **HR/9 is a proxy.** `p_hr_per_9_season` ≈ `HR_count / PA_count * 38.7`
   (9 innings × 4.3 PAs/inning). We don't track per-PA outs. Off by a few
   percent for extreme K/walk pitchers. See `phases/phase3/NOTES.md`.
-- **Bullpen features are league-wide, not team-specific.** `bp_*` aggregates
-  over all pitches in-season excluding the matchup's starter. Team-specific
-  rollup is a Phase 4+ refinement. See `phases/phase3/NOTES.md` Task 10.
+- **Legacy `bp_*` features are league-wide.** They remain for backward
+  compatibility with already-promoted artifacts. New modeling work should
+  prefer the opponent-team-specific `opp_bp_*` features, which exclude target
+  date relief appearances and remove each team's starter per game.
 - **Weather is NULL for historical rows.** Phase 2's `weather_forecasts`
   only stores today/future forecasts. Historical weather backfill via
   Open-Meteo `/v1/archive` is a Phase 4+ option.

@@ -71,6 +71,11 @@ def _prediction_from_row(row) -> PredictionBreakdown:
     fc_raw = row["feature_contributions"] or {}
     sorted_items = sorted(fc_raw.items(), key=lambda kv: -abs(kv[1]))[:10]
     contributions = [FeatureContribution(name=k, contribution=float(v)) for k, v in sorted_items]
+
+    def _mc_float(key: str) -> float | None:
+        value = mc.get(key)
+        return float(value) if value is not None else None
+
     return PredictionBreakdown(
         prob_at_least_one_hr=(
             float(row["prob_at_least_one_hr"]) if row["prob_at_least_one_hr"] is not None else None
@@ -79,10 +84,14 @@ def _prediction_from_row(row) -> PredictionBreakdown:
             float(row["prob_at_least_two_hr"]) if row["prob_at_least_two_hr"] is not None else None
         ),
         expected_hrs=float(row["expected_hrs"]) if row["expected_hrs"] is not None else None,
-        starter_raw_prob=mc.get("starter_raw_prob"),
-        starter_calibrated_prob=mc.get("starter_calibrated_prob"),
-        bullpen_raw_prob=mc.get("bullpen_raw_prob"),
-        bullpen_calibrated_prob=mc.get("bullpen_calibrated_prob"),
+        starter_raw_prob=_mc_float("starter_raw_prob"),
+        starter_calibrated_prob=_mc_float("starter_calibrated_prob"),
+        probability_semantics=mc.get("probability_semantics"),
+        full_game_raw_prob=_mc_float("full_game_raw_prob"),
+        full_game_calibrated_prob=_mc_float("full_game_calibrated_prob"),
+        starter_signal_source=mc.get("starter_signal_source"),
+        bullpen_raw_prob=_mc_float("bullpen_raw_prob"),
+        bullpen_calibrated_prob=_mc_float("bullpen_calibrated_prob"),
         top_contributing_features=contributions,
         model_version=row["model_version"],
         generated_at=row["generated_at"],

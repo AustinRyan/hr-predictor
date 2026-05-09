@@ -192,6 +192,15 @@ function featureLabel(name: string): string {
     p_tto_penalty: "TTO",
     bp_barrel_pct_allowed_season: "BP BRL",
     bp_hr_per_9_season: "BP HR/9",
+    opp_bp_hr_per_pa_30d: "OPP BP HR/PA 30D",
+    opp_bp_hr_per_pa_season: "OPP BP HR/PA SEAS",
+    opp_bp_barrel_pct_allowed_30d: "OPP BP BRL 30D",
+    opp_bp_barrel_pct_allowed_season: "OPP BP BRL SEAS",
+    opp_bp_hardhit_pct_allowed_30d: "OPP BP HH 30D",
+    opp_bp_hardhit_pct_allowed_season: "OPP BP HH SEAS",
+    opp_bp_lhb_hr_per_pa_season: "OPP BP vL HR/PA",
+    opp_bp_rhb_hr_per_pa_season: "OPP BP vR HR/PA",
+    opp_bp_pitches_last_3d: "OPP BP LOAD",
     park_hr_factor_hand: "Park HR",
     park_hr_factor_hand_3yr: "Park 3Y",
     wx_temperature_f: "Temp",
@@ -236,6 +245,18 @@ function factorGroups(p: PickSummary): FactorGroup[] {
         : fairAmericanFromProbability(p.prob_at_least_one_hr);
   const ev = formatEv(p.expected_value_per_unit);
   const hasMarket = p.odds_price_american !== null && p.market_implied_probability !== null;
+  const fullGameProbability = p.full_game_probability ?? p.prob_at_least_one_hr;
+  const bullpenHrRate = p.opp_bp_hr_per_pa_30d ?? p.opp_bp_hr_per_pa_season;
+  const bullpenBarrel =
+    p.opp_bp_barrel_pct_allowed_30d ?? p.opp_bp_barrel_pct_allowed_season;
+  const bullpenHardHit =
+    p.opp_bp_hardhit_pct_allowed_30d ?? p.opp_bp_hardhit_pct_allowed_season;
+  const bullpenHandHrRate =
+    p.batter_bats?.toUpperCase() === "L"
+      ? p.opp_bp_lhb_hr_per_pa_season
+      : p.batter_bats?.toUpperCase() === "R"
+        ? p.opp_bp_rhb_hr_per_pa_season
+        : null;
   const groups: FactorGroup[] = [
     {
       label: "MARKET",
@@ -268,6 +289,16 @@ function factorGroups(p: PickSummary): FactorGroup[] {
       ].filter((x): x is FactorItem => x !== null),
     },
     {
+      label: "BULLPEN",
+      items: [
+        factor("HR/PA", pct(bullpenHrRate, 1), (bullpenHrRate ?? 0) >= 0.035 ? "up" : "neutral"),
+        factor("BRL", pct(bullpenBarrel, 1), (bullpenBarrel ?? 0) >= 0.1 ? "up" : "neutral"),
+        factor("HH", pct(bullpenHardHit, 0), (bullpenHardHit ?? 0) >= 0.45 ? "up" : "neutral"),
+        factor("HAND HR", pct(bullpenHandHrRate, 1), (bullpenHandHrRate ?? 0) >= 0.035 ? "up" : "neutral"),
+        factor("LOAD", compactNumber(p.opp_bp_pitches_last_3d, 0), (p.opp_bp_pitches_last_3d ?? 0) >= 120 ? "up" : "neutral"),
+      ].filter((x): x is FactorItem => x !== null),
+    },
+    {
       label: "PARK/WX",
       items: [
         factor("PARK", signedDelta(p.park_hr_factor_hand, 100), toneFromDelta(p.park_hr_factor_hand, 100, 3)),
@@ -279,6 +310,8 @@ function factorGroups(p: PickSummary): FactorGroup[] {
     {
       label: "MODEL",
       items: [
+        factor("FULL", pct(fullGameProbability, 1), "neutral"),
+        factor("START", pct(p.starter_matchup_probability, 1), "neutral"),
         factor("RAW", pct(p.model_rank_score, 1), "neutral"),
         ...modelDriverFactors(p.top_contributing_features),
       ].filter((x): x is FactorItem => x !== null),

@@ -77,6 +77,9 @@ $ curl -s 'http://127.0.0.1:8765/picks/today?limit=5'
     "prob_at_least_one_hr": 0.1025,
     "expected_hrs": 0.1025,
     "model_rank_score": 0.118,
+    "probability_semantics": "full_game_hr",
+    "full_game_probability": 0.1025,
+    "starter_matchup_probability": 0.075,
     "odds_bookmaker": "DraftKings",
     "odds_price_american": 700,
     "market_implied_probability": 0.125,
@@ -88,6 +91,9 @@ $ curl -s 'http://127.0.0.1:8765/picks/today?limit=5'
     "pitcher_barrel_pct_allowed_season": 0.08,
     "batting_order": 2,
     "projected_pas": 4.5,
+    "opp_bp_hr_per_pa_30d": 0.033,
+    "opp_bp_barrel_pct_allowed_30d": 0.101,
+    "opp_bp_pitches_last_3d": 118,
     "wind_carry_cf": 2.1,
     "temperature_f": 72,
     "top_contributing_features": [
@@ -138,7 +144,9 @@ $ curl -s http://127.0.0.1:8765/matchup/823233/660271
   "weather":  {temperature_f, humidity_pct, wind_*, air_density_relative, is_roof_closed},
   "prediction": {
      prob_at_least_one_hr, prob_at_least_two_hr, expected_hrs,
-     starter_raw_prob, starter_calibrated_prob,
+     probability_semantics,
+     full_game_raw_prob, full_game_calibrated_prob,
+     starter_raw_prob, starter_calibrated_prob, starter_signal_source,
      bullpen_raw_prob, bullpen_calibrated_prob,   # currently null (see phase 6 NOTES)
      top_contributing_features,                    # top 10 SHAP
      model_version, generated_at
@@ -207,11 +215,20 @@ Consistent `{error: str, detail?: str}` body:
   always compares like-for-like. Odds fields are nullable so stale/missing
   provider data does not hide predictions.
 - `/picks/today` deliberately tie-breaks equal calibrated probabilities
-  by `matchup_components.starter_raw_prob` (`model_rank_score` in the
-  response), then projected PA, batting order, and batter ID. Isotonic
-  calibration creates real probability plateaus; the raw score gives a
-  deterministic ranking inside each calibrated bucket without pretending
-  the headline probability is more precise than it is.
+  by raw model score (`matchup_components.full_game_raw_prob` for
+  full-game artifacts, otherwise `starter_raw_prob`; exposed as
+  `model_rank_score`), then projected PA, batting order, and batter ID.
+  Isotonic calibration creates real probability plateaus; the raw score
+  gives a deterministic ranking inside each calibrated bucket without
+  pretending the headline probability is more precise than it is.
+- Full-game artifacts expose `probability_semantics="full_game_hr"` and
+  `full_game_probability`; starter-only artifacts fall back to
+  `probability_semantics="starter_matchup_hr"`. Fair odds, edge, and EV
+  always use `prob_at_least_one_hr`, never the raw tie-break score.
+- `opp_bp_*` fields on `/picks/today` come from the opponent team's
+  relief-pitcher aggregate in `matchup_features`. They are nullable for
+  old feature rows/artifacts but should populate after the bullpen
+  migration and feature rebuild.
 - Cache keys include the current production model version.
 - Redis failures degrade gracefully.
 - `/health` returns 503 (not 200) when Postgres or Redis is down.

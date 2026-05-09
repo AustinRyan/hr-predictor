@@ -60,7 +60,7 @@ from src.models.rollup import per_game_probability, poisson_binomial_pmf, GameHR
 from src.models.odds import american_to_implied_probability, expected_value_per_unit
 ```
 
-`LoadedModel` exposes `.model` (XGBoost Booster), `.feature_schema` (ordered list of 118 production feature names), `.training_metadata` (git_sha, data_hash, config, training_range), `.metrics`.
+`LoadedModel` exposes `.model` (XGBoost Booster), `.feature_schema` (ordered list of feature names saved with that artifact), `.training_metadata` (git_sha, data_hash, config, training_range), `.metrics`. The current promoted artifact still has the older 118-feature schema; the live training schema is 127 features after adding opponent-bullpen metrics and excluding raw `opp_team_id`.
 
 **Standard inference pipeline** (Phase 6 onward):
 
@@ -114,7 +114,7 @@ src/models/registry/v{YYYYMMDD_HHMMSS}/
 
 ## Gotchas
 
-- **`FEATURE_COLUMNS` is enumerated at module-load time** from `MatchupFeature`. Excluded columns: `game_date`, `game_pk`, `batter_id`, `pitcher_id` (keys), `hr_on_pa` (label), `is_historical` (flag), `built_at` (audit), two string columns (`p_primary_pitch`, `ctx_day_night`), and the two leaky rest-day diagnostics. Add a new numeric feature column to the ORM and it's automatically in `FEATURE_COLUMNS` for future training runs — no manual update. Currently 118 features.
+- **`FEATURE_COLUMNS` is enumerated at module-load time** from `MatchupFeature`. Excluded columns: `game_date`, `game_pk`, `batter_id`, `pitcher_id` (keys), `hr_on_pa` (label), `is_historical` (flag), `built_at` (audit), two string columns (`p_primary_pitch`, `ctx_day_night`), raw identifier `opp_team_id`, and the two leaky rest-day diagnostics. Add a new numeric feature column to the ORM and it's automatically in `FEATURE_COLUMNS` for future training runs — no manual update. Currently 127 live features; older artifacts keep their saved schema.
 - **`FULL_GAME_FEATURE_COLUMNS` excludes `opp_team_id`.** The full-game model
   keeps the numeric bullpen-strength fields (`opp_bp_*`) but drops the raw team
   identifier to avoid treating MLBAM team IDs as ordered numeric signal.

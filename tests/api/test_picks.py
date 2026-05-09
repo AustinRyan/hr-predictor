@@ -207,11 +207,49 @@ def _seed_odds(game_date: date) -> None:
     _flush_picks_cache()
 
 
+def _seed_matchup_feature_context(game_date: date) -> None:
+    sf = _get_session_factory()
+    with sf() as s:
+        s.execute(
+            text(
+                "INSERT INTO matchup_features "
+                "(game_date, game_pk, batter_id, pitcher_id, is_historical, "
+                " opp_team_id, opp_bp_hr_per_pa_30d, opp_bp_hr_per_pa_season, "
+                " opp_bp_barrel_pct_allowed_30d, opp_bp_barrel_pct_allowed_season, "
+                " opp_bp_hardhit_pct_allowed_30d, opp_bp_hardhit_pct_allowed_season, "
+                " opp_bp_lhb_hr_per_pa_season, opp_bp_rhb_hr_per_pa_season, "
+                " opp_bp_pitches_last_3d, ctx_projected_pa, ctx_batting_order) "
+                "VALUES "
+                "(:d, :gp, 700001, :p, false, "
+                " 9002, 0.041, 0.033, 0.122, 0.101, "
+                " 0.488, 0.451, 0.037, 0.029, 142.0, 4.7, 1) "
+                "ON CONFLICT (game_date, game_pk, batter_id, pitcher_id) "
+                "DO UPDATE SET "
+                "opp_team_id = EXCLUDED.opp_team_id, "
+                "opp_bp_hr_per_pa_30d = EXCLUDED.opp_bp_hr_per_pa_30d, "
+                "opp_bp_hr_per_pa_season = EXCLUDED.opp_bp_hr_per_pa_season, "
+                "opp_bp_barrel_pct_allowed_30d = EXCLUDED.opp_bp_barrel_pct_allowed_30d, "
+                "opp_bp_barrel_pct_allowed_season = EXCLUDED.opp_bp_barrel_pct_allowed_season, "
+                "opp_bp_hardhit_pct_allowed_30d = EXCLUDED.opp_bp_hardhit_pct_allowed_30d, "
+                "opp_bp_hardhit_pct_allowed_season = EXCLUDED.opp_bp_hardhit_pct_allowed_season, "
+                "opp_bp_lhb_hr_per_pa_season = EXCLUDED.opp_bp_lhb_hr_per_pa_season, "
+                "opp_bp_rhb_hr_per_pa_season = EXCLUDED.opp_bp_rhb_hr_per_pa_season, "
+                "opp_bp_pitches_last_3d = EXCLUDED.opp_bp_pitches_last_3d, "
+                "ctx_projected_pa = EXCLUDED.ctx_projected_pa, "
+                "ctx_batting_order = EXCLUDED.ctx_batting_order"
+            ),
+            {"gp": _TEST_GAME_PK, "d": game_date, "p": _TEST_PITCHER_ID},
+        )
+        s.commit()
+    _flush_picks_cache()
+
+
 def _cleanup_predictions() -> None:
     sf = _get_session_factory()
     with sf() as s:
         s.execute(text("DELETE FROM odds_snapshots WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         s.execute(text("DELETE FROM predictions WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
+        s.execute(text("DELETE FROM matchup_features WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         s.execute(text("DELETE FROM projected_lineups WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         s.execute(text("DELETE FROM daily_schedule WHERE game_pk = :gp"), {"gp": _TEST_GAME_PK})
         s.commit()
@@ -325,6 +363,54 @@ async def test_picks_today_includes_latest_best_odds_edge_and_ev(client) -> None
         assert pick["expected_value_per_unit"] == pytest.approx(
             pick["prob_at_least_one_hr"] * 7 - (1 - pick["prob_at_least_one_hr"])
         )
+    finally:
+        _cleanup_predictions()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_picks_today_exposes_full_game_probability_and_bullpen_context(client) -> None:
+    today = current_mlb_date()
+    model_version = _active_model_version()
+    _seed_predictions(today, model_version)
+    _seed_matchup_feature_context(today)
+    sf = _get_session_factory()
+    with sf() as s:
+        s.execute(
+            text(
+                "UPDATE predictions "
+                "SET prob_at_least_one_hr = 0.42, expected_hrs = 0.42, "
+                "    matchup_components = :mc "
+                "WHERE game_pk = :gp AND batter_id = 700001 AND model_version = :mv"
+            ),
+            {
+                "gp": _TEST_GAME_PK,
+                "mv": model_version,
+                "mc": (
+                    '{"probability_semantics": "full_game_hr", '
+                    '"full_game_raw_prob": 0.39, '
+                    '"full_game_calibrated_prob": 0.42, '
+                    '"starter_raw_prob": 0.11, '
+                    '"starter_calibrated_prob": 0.12}'
+                ),
+            },
+        )
+        s.commit()
+    _flush_picks_cache()
+    try:
+        r = await client.get("/picks/today?limit=10")
+        assert r.status_code == 200, r.text
+        pick = next(row for row in r.json() if row["batter_id"] == 700001)
+
+        assert pick["probability_semantics"] == "full_game_hr"
+        assert pick["full_game_probability"] == pytest.approx(0.42)
+        assert pick["starter_matchup_probability"] == pytest.approx(0.12)
+        assert pick["model_rank_score"] == pytest.approx(0.39)
+        assert pick["opp_team_id"] == 9002
+        assert pick["opp_bp_hr_per_pa_30d"] == pytest.approx(0.041)
+        assert pick["opp_bp_barrel_pct_allowed_30d"] == pytest.approx(0.122)
+        assert pick["opp_bp_hardhit_pct_allowed_30d"] == pytest.approx(0.488)
+        assert pick["opp_bp_pitches_last_3d"] == pytest.approx(142.0)
     finally:
         _cleanup_predictions()
 
