@@ -134,6 +134,11 @@ from src.ingestion.scheduler import build_scheduler, start_scheduler
   The client retries transient 429/5xx/connect/read failures; if the
   event list is unavailable, ingestion returns a failure report with zero
   rows instead of aborting the daily picks refresh.
+- **`scripts/refresh-picks.sh` is date-specific end to end.** Schedule,
+  weather, proxy lineups, feature building, inference, and odds ingestion
+  all receive the same explicit target date. Use that script for live
+  slate updates; use `python -m src.features.builder --start ... --end ...`
+  only for controlled historical feature backfills.
 - **PropLine `batter_home_runs` may include alternate ladders** such as
   `2+ Home Runs`, `3+ Home Runs`, or Over 1.5. Those are different
   bets from the model target (`P(at least one HR)`) and must be filtered

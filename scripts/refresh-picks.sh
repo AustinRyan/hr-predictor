@@ -88,12 +88,13 @@ print(f'  proxy lineup rows inserted: {n}')
 echo
 echo "[3/4] building matchup_features + running inference"
 uv run python -c "
-from src.features.builder import build_features_for_today
+from src.features.builder import build_features_for_date
 from src.models.inference import generate_predictions_for_date
 from datetime import date
-fr = build_features_for_today()
+target_date = date.fromisoformat('${TARGET_DATE}')
+fr = build_features_for_date(target_date)
 print(f'  matchup_features rows: {fr}')
-rows = generate_predictions_for_date(date.fromisoformat('${TARGET_DATE}'))
+rows = generate_predictions_for_date(target_date)
 print(f'  predictions written: {rows}')
 "
 

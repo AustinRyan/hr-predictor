@@ -47,7 +47,10 @@ Known Phase 3 gaps (documented in ``phases/phase3/NOTES.md``)
 
 from __future__ import annotations
 
+import argparse
 import logging
+import sys
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -225,6 +228,62 @@ def build_features_for_date(target_date: date, *, engine: Engine | None = None) 
 def build_features_for_today(*, engine: Engine | None = None) -> int:
     """Build all rows for the current MLB slate date."""
     return build_features_for_date(current_mlb_date(), engine=engine)
+
+
+def _parse_date_arg(raw: str) -> date:
+    try:
+        return date.fromisoformat(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected YYYY-MM-DD") from exc
+
+
+def _main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build matchup_features rows.")
+    parser.add_argument("--game-pk", type=int, help="build one game_pk")
+    parser.add_argument("--date", type=_parse_date_arg, help="build one date")
+    parser.add_argument("--start", type=_parse_date_arg, help="start date for closed range")
+    parser.add_argument("--end", type=_parse_date_arg, help="end date for closed range")
+    parser.add_argument(
+        "--today",
+        action="store_true",
+        help="build the current MLB slate date (default when no selector is given)",
+    )
+    args = parser.parse_args(argv)
+
+    has_range = args.start is not None or args.end is not None
+    selectors = [
+        args.game_pk is not None,
+        args.date is not None,
+        has_range,
+        args.today,
+    ]
+    if sum(selectors) > 1:
+        parser.print_usage(file=sys.stderr)
+        print(
+            "builder.py: error: choose only one of --game-pk, --date, --start/--end, or --today",
+            file=sys.stderr,
+        )
+        return 2
+
+    if has_range:
+        if args.start is None or args.end is None:
+            parser.print_usage(file=sys.stderr)
+            print("builder.py: error: --start and --end must be provided together", file=sys.stderr)
+            return 2
+        if args.end < args.start:
+            parser.print_usage(file=sys.stderr)
+            print("builder.py: error: --end must be on or after --start", file=sys.stderr)
+            return 2
+        rows = build_features_for_historical(args.start, args.end)
+    elif args.game_pk is not None:
+        rows = build_features_for_game(args.game_pk)
+    elif args.date is not None:
+        rows = build_features_for_date(args.date)
+    else:
+        rows = build_features_for_today()
+
+    print(f"matchup_features rows: {rows}")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -935,3 +994,7 @@ def _upsert_rows(session: Session, rows: list[dict[str, Any]]) -> None:
             set_=update_set,
         )
         session.execute(stmt)
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

@@ -23,9 +23,10 @@ Executes `./scripts/refresh-picks.sh` from the repo root. That script:
 2. Fetches today's weather forecasts (Open-Meteo)
 3. Backfills the last 7 days of Statcast pitches (covers any games not yet ingested)
 4. **Fills proxy lineups** for teams whose lineup isn't posted yet (copies their most recent prior lineup with `is_confirmed=False`). Idempotent — only fills gaps.
-5. Builds `matchup_features` rows for today
-6. Runs inference with the production ensemble model (XGBoost+LightGBM, v20260423_231941)
+5. Builds `matchup_features` rows for the target date, including opponent-team bullpen context (`opp_bp_*`) when the database is on migration `0008+`
+6. Runs inference with the production model version pointed to by `src/models/registry/PRODUCTION`
 7. Upserts predictions into the `predictions` table
+8. Fetches PropLine sportsbook odds when `PROP_LINE_API_KEY` is set; odds failures are reported without aborting predictions
 
 All writes go to **Neon** because the repo's `.env` already points there. The deployed Vercel frontend reads the same Neon DB, so a hard-refresh on the live URL shows the new picks immediately.
 
@@ -43,9 +44,12 @@ cd /Users/austinryan/Desktop/sideproject/hr-predictor
 Use the Bash tool. Expect output ending in:
 
 ```
-[3/3] building matchup_features + running inference
+[3/4] building matchup_features + running inference
   matchup_features rows: <N>
   predictions written: <N>
+
+[4/4] fetching sportsbook odds
+  odds_rows=<N> ...
 
 ✓ refresh complete for YYYY-MM-DD
 ```
@@ -61,6 +65,7 @@ from sqlalchemy import text
 with get_session() as s:
     rows = s.execute(text('''
         SELECT p.full_name, pr.prob_at_least_one_hr,
+               pr.matchup_components->>'probability_semantics' AS semantics,
                pi.full_name AS pitcher, pk.name AS park
         FROM predictions pr
         JOIN players p ON p.mlbam_id = pr.batter_id
@@ -72,7 +77,8 @@ with get_session() as s:
     ''')).all()
     for r in rows:
         pct = float(r.prob_at_least_one_hr) * 100
-        print(f'  {r.full_name:<22s} vs {r.pitcher or \"—\":<22s} @ {r.park or \"—\":<22s} {pct:.1f}%')
+        semantics = r.semantics or 'starter_matchup_hr'
+        print(f'  {r.full_name:<22s} vs {r.pitcher or \"—\":<22s} @ {r.park or \"—\":<22s} {pct:.1f}% {semantics}')
 "
 ```
 
@@ -84,6 +90,7 @@ Tell them:
 - How many predictions were written
 - The slate size (number of unique games)
 - The top 1-3 picks with names + probabilities + parks
+- Whether probabilities are `full_game_hr` or `starter_matchup_hr`
 - That they can hard-refresh the live site (`localhost:3000` for local dev, or their Vercel URL) to see fresh picks
 
 Example:
@@ -104,6 +111,14 @@ The script reports `games=0` and writes 0 predictions. Don't hide this — tell 
 ### "Statcast backfill failed"
 
 Look at the failure list at the end of the run. Most commonly it's a transient pybaseball / Baseball Savant timeout — re-running usually fixes it. If a specific date keeps failing, that's a real issue to dig into.
+
+### "Odds failed but predictions completed"
+
+This is safe to report as an odds-provider issue. The predictions and matchup features are current; sportsbook edge/EV will be missing or stale until the odds step succeeds on a later rerun.
+
+### "The user asks whether bullpen is included"
+
+The refresh script builds opponent-team bullpen features every run. They affect the headline probability only when the promoted artifact was trained with `target="full_game_hr"` and the `opp_bp_*` fields in its feature schema. Older starter-matchup artifacts still expose bullpen fields for display/debugging but do not use them in probability generation.
 
 ## What NOT to do
 

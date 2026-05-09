@@ -71,6 +71,9 @@ profile, bullpen, park, weather, and context. Reads Phase 1 + Phase 2 tables; wr
   explicit target date; used by admin refresh and date-specific scripts.
 - `build_features_for_today(engine=...)` — wrapper for the current MLB slate date
   in America/New_York.
+- CLI: `python -m src.features.builder --start YYYY-MM-DD --end YYYY-MM-DD`
+  backfills a closed historical range; `--date`, `--game-pk`, and `--today`
+  are also supported for smaller rebuilds.
 
 ## Public interface
 
