@@ -116,8 +116,10 @@ from src.features.batter_splits import regress_rate, LEAGUE_AVG_HR_PER_PA
 
 ## Gotchas
 - **Leakage contract.** Every SQL generator filters aggregates with
-  `sp.game_date < mk.reference_date` (strict `<`). Each module has a regex
-  test that asserts `<=` never appears near `reference_date`. See
+  a strict `< reference_date` predicate. Most CTEs use
+  `sp.game_date < mk.reference_date`; `team_bullpen_sql()` aggregates through
+  distinct `team_date_keys` and uses `sp.game_date < tk.reference_date`.
+  Each module has a regex test that asserts `<=` never appears near `reference_date`. See
   `tests/features/test_leakage.py` for an end-to-end leakage guard that
   seeds a "clobber on target date" and checks it's excluded.
 - **SQL generators return CTE SELECT bodies, not full statements.** The
@@ -137,7 +139,10 @@ from src.features.batter_splits import regress_rate, LEAGUE_AVG_HR_PER_PA
   `reference_date`; target-date pitches are excluded with strict `<`. Starters
   are excluded per team-game by taking the first inning-1 pitcher for the team
   that is on defense (`Top` → home team pitching, `Bot` → away team pitching).
-  This is still a team-level strength and workload signal, not a projected
+  The CTE aggregates once per `(reference_date, opp_team_id)` and then joins
+  the result back to each matchup, because every hitter facing the same
+  opponent team on the same date shares the same bullpen context. This is
+  still a team-level strength and workload signal, not a projected
   reliever-depth-chart model.
 - **HR/9 is a proxy.** `p_hr_per_9_season` ≈ `HR_count / PA_count * 38.7`
   (9 innings × 4.3 PAs/inning). We don't track per-PA outs. Off by a few

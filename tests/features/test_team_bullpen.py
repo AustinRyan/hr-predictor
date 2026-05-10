@@ -26,7 +26,7 @@ def test_sql_has_expected_columns() -> None:
 
 def test_sql_uses_strict_reference_date_filters() -> None:
     sql = team_bullpen_sql()
-    assert "sp.game_date < mk.reference_date" in sql
+    assert "sp.game_date < tk.reference_date" in sql
     assert re.search(r"<=\s*[a-z_.]*reference_date", sql, re.IGNORECASE) is None
 
 
@@ -39,6 +39,17 @@ def test_sql_derives_pitcher_team_from_inning_context() -> None:
 def test_sql_excludes_team_game_starter_from_relief_aggregates() -> None:
     sql = team_bullpen_sql()
     assert re.search(r"pitcher_id\s*(<>|!=)\s*\S*starter_id", sql) is not None
+
+
+def test_sql_aggregates_once_per_team_date_before_matchup_fanout() -> None:
+    sql = team_bullpen_sql()
+    assert "team_date_keys AS" in sql
+    assert re.search(
+        r"GROUP BY\s+tk\.reference_date,\s+tk\.opp_team_id",
+        sql,
+        re.IGNORECASE,
+    )
+    assert "JOIN team_date_bp tdb" in sql
 
 
 @pytest.fixture()
