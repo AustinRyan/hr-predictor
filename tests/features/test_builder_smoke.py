@@ -9,7 +9,11 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
-from src.features.builder import build_features_for_date, build_features_for_game
+from src.features.builder import (
+    backfill_team_bullpen_features,
+    build_features_for_date,
+    build_features_for_game,
+)
 
 
 @pytest.fixture()
@@ -301,6 +305,57 @@ def test_builder_populates_team_bullpen_features(test_engine: Engine, clean_tabl
         {
             "batter_id": 5002,
             "pitcher_id": 9011,
+            "opp_team_id": 200,
+            "opp_bp_hr_per_pa_30d": pytest.approx(0.0),
+        },
+    ]
+
+
+@pytest.mark.integration
+def test_backfill_team_bullpen_updates_existing_rows(test_engine: Engine, clean_tables) -> None:
+    """Bullpen-only mode should repair existing matchup rows without a full rebuild."""
+    test_builder_populates_team_bullpen_features(test_engine, clean_tables)
+
+    session_factory = sessionmaker(bind=test_engine, future=True, expire_on_commit=False)
+    with session_factory() as s:
+        s.execute(
+            text(
+                "UPDATE matchup_features "
+                "SET opp_team_id = NULL, opp_bp_hr_per_pa_30d = NULL "
+                "WHERE game_pk = 9992002"
+            )
+        )
+        s.commit()
+
+    updated = backfill_team_bullpen_features(
+        date(2024, 6, 10),
+        date(2024, 6, 10),
+        engine=test_engine,
+    )
+
+    with session_factory() as s:
+        rows = (
+            s.execute(
+                text(
+                    "SELECT batter_id, opp_team_id, opp_bp_hr_per_pa_30d "
+                    "FROM matchup_features "
+                    "WHERE game_pk = 9992002 "
+                    "ORDER BY batter_id"
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+    assert updated == 2
+    assert [dict(row) for row in rows] == [
+        {
+            "batter_id": 5001,
+            "opp_team_id": 100,
+            "opp_bp_hr_per_pa_30d": pytest.approx(0.5),
+        },
+        {
+            "batter_id": 5002,
             "opp_team_id": 200,
             "opp_bp_hr_per_pa_30d": pytest.approx(0.0),
         },

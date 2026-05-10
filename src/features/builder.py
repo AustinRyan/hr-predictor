@@ -213,6 +213,33 @@ def build_features_for_historical(
     return total
 
 
+def backfill_team_bullpen_features(
+    start_date: date,
+    end_date: date,
+    *,
+    engine: Engine | None = None,
+) -> int:
+    """Update only opponent-team bullpen fields on existing matchup rows.
+
+    This is the fast path for rolling out newly added ``opp_team_id`` and
+    ``opp_bp_*`` columns after the wide historical feature table already exists.
+    It reuses the normal matchup-key derivation and team-bullpen CTE but skips
+    every other feature family.
+    """
+    engine = engine or get_engine()
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+    total = 0
+    day = start_date
+    while day <= end_date:
+        with session_factory() as s:
+            total += _backfill_team_bullpen_for_day(s, day)
+            s.commit()
+        day += timedelta(days=1)
+
+    return total
+
+
 def build_features_for_date(target_date: date, *, engine: Engine | None = None) -> int:
     """Build all rows for one explicit date in one day-batched pass."""
     engine = engine or get_engine()
@@ -248,6 +275,11 @@ def _main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="build the current MLB slate date (default when no selector is given)",
     )
+    parser.add_argument(
+        "--team-bullpen-only",
+        action="store_true",
+        help="update only opp_team_id and opp_bp_* columns on existing matchup_features rows",
+    )
     args = parser.parse_args(argv)
 
     has_range = args.start is not None or args.end is not None
@@ -265,6 +297,11 @@ def _main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
+    if args.team_bullpen_only and args.game_pk is not None:
+        parser.print_usage(file=sys.stderr)
+        print("builder.py: error: --team-bullpen-only does not support --game-pk", file=sys.stderr)
+        return 2
+
     if has_range:
         if args.start is None or args.end is None:
             parser.print_usage(file=sys.stderr)
@@ -274,13 +311,26 @@ def _main(argv: Sequence[str] | None = None) -> int:
             parser.print_usage(file=sys.stderr)
             print("builder.py: error: --end must be on or after --start", file=sys.stderr)
             return 2
-        rows = build_features_for_historical(args.start, args.end)
+        rows = (
+            backfill_team_bullpen_features(args.start, args.end)
+            if args.team_bullpen_only
+            else build_features_for_historical(args.start, args.end)
+        )
     elif args.game_pk is not None:
         rows = build_features_for_game(args.game_pk)
     elif args.date is not None:
-        rows = build_features_for_date(args.date)
+        rows = (
+            backfill_team_bullpen_features(args.date, args.date)
+            if args.team_bullpen_only
+            else build_features_for_date(args.date)
+        )
     else:
-        rows = build_features_for_today()
+        target_date = current_mlb_date()
+        rows = (
+            backfill_team_bullpen_features(target_date, target_date)
+            if args.team_bullpen_only
+            else build_features_for_today()
+        )
 
     print(f"matchup_features rows: {rows}")
     return 0
@@ -698,6 +748,46 @@ def _run_team_bullpen_query(
         key = (int(r["opp_team_id"]), r["game_date"])
         out[key] = {col: r[col] for col in _TEAM_BULLPEN_COLS}
     return out
+
+
+def _backfill_team_bullpen_for_day(
+    session: Session,
+    day: date,
+    *,
+    only_game_pk: int | None = None,
+) -> int:
+    """Update existing matchup rows with freshly computed team-bullpen fields."""
+    base_mk = _matchup_keys_cte(only_game_pk=only_game_pk)
+    assignments = ",\n        ".join(
+        f"{col} = tbp.{col}" for col in ("opp_team_id", *_TEAM_BULLPEN_COLS)
+    )
+    q = f"""
+    WITH matchup_keys AS (
+        {base_mk}
+    ),
+    team_bullpen_cte AS (
+        {team_bullpen_sql()}
+    )
+    UPDATE matchup_features AS mf
+    SET
+        {assignments}
+    FROM team_bullpen_cte AS tbp
+    WHERE mf.game_date = tbp.reference_date
+      AND mf.game_pk = tbp.game_pk
+      AND mf.batter_id = tbp.batter_id
+      AND mf.pitcher_id = tbp.pitcher_id
+    """
+    params: dict[str, Any] = {"day": day}
+    if only_game_pk is not None:
+        params["only_game_pk"] = only_game_pk
+
+    result = session.execute(text(q), params)
+    updated = result.rowcount if result.rowcount is not None and result.rowcount > 0 else 0
+    _log.info(
+        "builder: backfilled team bullpen rows",
+        extra={"day": str(day), "rows": updated, "only_game_pk": only_game_pk},
+    )
+    return updated
 
 
 # ---------------------------------------------------------------------------

@@ -51,6 +51,46 @@ class LoadedModel:
     path: Path
 
 
+def _artifact_best_iteration(loaded: LoadedModel) -> int | None:
+    """Return the 0-indexed best iteration saved with an artifact, if valid."""
+    raw = loaded.training_metadata.get("best_iteration", loaded.metrics.get("best_iteration"))
+    if raw is None:
+        return None
+    try:
+        best_iteration = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if best_iteration < 0:
+        return None
+    try:
+        boosted_rounds = int(loaded.model.num_boosted_rounds())
+    except xgboost.core.XGBoostError:
+        return None
+    if best_iteration >= boosted_rounds:
+        return None
+    return best_iteration
+
+
+def predict_loaded_model(
+    loaded: LoadedModel,
+    dmatrix: xgboost.DMatrix,
+    **predict_kwargs: Any,
+) -> Any:
+    """Predict with a loaded artifact, honoring saved early-stopping metadata.
+
+    XGBoost's sklearn wrapper uses ``best_iteration`` automatically after
+    early stopping, but a saved artifact is loaded as a native ``Booster``.
+    Native Booster prediction uses every saved tree unless an
+    ``iteration_range`` is supplied, which can make served probabilities drift
+    from the training/evaluation metrics. This helper keeps inference aligned
+    with the artifact's recorded best iteration when present.
+    """
+    best_iteration = _artifact_best_iteration(loaded)
+    if best_iteration is not None and "iteration_range" not in predict_kwargs:
+        predict_kwargs["iteration_range"] = (0, best_iteration + 1)
+    return loaded.model.predict(dmatrix, **predict_kwargs)
+
+
 def save_model(
     model: xgboost.Booster | xgboost.XGBModel,
     config: dict[str, Any] | Any,

@@ -35,7 +35,13 @@ Scope boundary: **no API** (Phase 6), **no daily inference pipeline** (Phase 6+)
 Most-common imports for other modules (Phase 6 API, inference pipelines):
 
 ```python
-from src.models.artifacts import load_model, LoadedModel, list_versions, promote_to_production
+from src.models.artifacts import (
+    LoadedModel,
+    list_versions,
+    load_model,
+    predict_loaded_model,
+    promote_to_production,
+)
 from src.models.data import FEATURE_COLUMNS, FeatureFrame, load_training_data, time_based_split
 from src.models.full_game_data import (
     FULL_GAME_FEATURE_COLUMNS,
@@ -68,7 +74,7 @@ from src.models.odds import american_to_implied_probability, expected_value_per_
 loaded = load_model()                          # PRODUCTION or version=...
 cal = load_calibrator(loaded.version)          # co-located with model
 dmat = xgboost.DMatrix(X.values, feature_names=loaded.feature_schema)
-raw = loaded.model.predict(dmat)
+raw = predict_loaded_model(loaded, dmat)
 calibrated = apply_calibrator(cal, raw)        # per-matchup (per batter-pitcher-game) HR probability
 # then for each matchup row: per_game_hr_distribution(GameMatchupInputs(starter_prob=calibrated[i]))
 # when a bullpen prediction is available (Phase 6+): pass bullpen_prob=... to combine via 1 - (1-P_s)(1-P_b).
@@ -119,6 +125,12 @@ src/models/registry/v{YYYYMMDD_HHMMSS}/
   keeps the numeric bullpen-strength fields (`opp_bp_*`) but drops the raw team
   identifier to avoid treating MLBAM team IDs as ordered numeric signal.
 - **Inference uses the artifact schema, not live `FEATURE_COLUMNS`.** `generate_predictions_for_date` validates every saved feature name exists on `matchup_features`, then selects/builds the frame in exactly that artifact order. This prevents a new ORM feature column from silently reshaping an older production model.
+- **Use `predict_loaded_model`, not raw `loaded.model.predict`.** XGBoost's
+  sklearn wrapper automatically honors `best_iteration` after early stopping,
+  but loaded native `Booster` objects use every saved tree unless given an
+  `iteration_range`. `predict_loaded_model()` reads the artifact's
+  `best_iteration` from metadata/metrics so served probabilities match the
+  evaluation metrics.
 - **Inference defensively ranks future duplicates.** If stale future
   `matchup_features` rows exist for the same `(game_pk, batter_id)`, the
   query keeps the newest `built_at` row before prediction upsert. The feature

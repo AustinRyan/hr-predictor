@@ -67,18 +67,24 @@ profile, bullpen, park, weather, and context. Reads Phase 1 + Phase 2 tables; wr
 - `build_features_for_historical(start_date, end_date, engine=...)` — iterates
   day-by-day; for each day, runs ONE composed CTE query across all games that
   day (day-batched optimization from Task 12B; ~8× faster than per-game loops).
+- `backfill_team_bullpen_features(start_date, end_date, engine=...)` — updates
+  only `opp_team_id` and `opp_bp_*` on existing `matchup_features` rows. Use
+  this after adding or changing team-bullpen columns when the rest of the wide
+  feature table is already built.
 - `build_features_for_date(target_date, engine=...)` — builds all rows for one
   explicit target date; used by admin refresh and date-specific scripts.
 - `build_features_for_today(engine=...)` — wrapper for the current MLB slate date
   in America/New_York.
 - CLI: `python -m src.features.builder --start YYYY-MM-DD --end YYYY-MM-DD`
   backfills a closed historical range; `--date`, `--game-pk`, and `--today`
-  are also supported for smaller rebuilds.
+  are also supported for smaller rebuilds. Add `--team-bullpen-only` to repair
+  just the opponent-team bullpen fields on already-existing rows.
 
 ## Public interface
 
 ```python
 from src.features.builder import (
+    backfill_team_bullpen_features,
     build_features_for_game,
     build_features_for_historical,
     build_features_for_date,
@@ -175,3 +181,8 @@ from src.features.batter_splits import regress_rate, LEAGUE_AVG_HR_PER_PA
   `uv run python -u phases/phase3/backfill_runner.py` (~12 hours on a
   laptop). Output JSON-lines to `reports/phase3_backfill.log`. Idempotent
   via upsert on the composite PK.
+- **Use the targeted bullpen-only path for rollout repairs.** When historical
+  `matchup_features` already exist and only `opp_team_id`/`opp_bp_*` are empty,
+  prefer `uv run python -m src.features.builder --start YYYY-MM-DD --end YYYY-MM-DD --team-bullpen-only`.
+  It reuses the normal matchup-key derivation and team-bullpen SQL but skips
+  the other feature families.

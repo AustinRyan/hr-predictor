@@ -14,6 +14,7 @@ from src.models.artifacts import (
     current_production,
     list_versions,
     load_model,
+    predict_loaded_model,
     promote_to_production,
     save_model,
 )
@@ -58,6 +59,42 @@ def test_save_and_load_roundtrip(tmp_path: Path, tiny_model) -> None:
     X_new = np.random.rand(20, 5)
     dmat = xgboost.DMatrix(X_new, feature_names=["f0", "f1", "f2", "f3", "f4"])
     assert np.allclose(tiny_model.predict(dmat), loaded.model.predict(dmat))
+
+
+def test_predict_loaded_model_uses_saved_best_iteration(tmp_path: Path) -> None:
+    rng = np.random.default_rng(seed=7)
+    X = rng.random((300, 5))
+    y = (X[:, 0] + X[:, 1] > 1.0).astype(int)
+    dmat = xgboost.DMatrix(X, label=y, feature_names=["f0", "f1", "f2", "f3", "f4"])
+    model = xgboost.train(
+        {
+            "objective": "binary:logistic",
+            "eval_metric": "logloss",
+            "verbosity": 0,
+            "seed": 7,
+            "max_depth": 2,
+        },
+        dmat,
+        num_boost_round=8,
+    )
+    path = save_model(
+        model=model,
+        config={"n_estimators": 8},
+        metrics={"best_iteration": 2},
+        feature_columns=["f0", "f1", "f2", "f3", "f4"],
+        training_range=("2021-04-01", "2023-10-31"),
+        data_hash="abcd" * 16,
+        registry_root=tmp_path,
+    )
+    loaded = load_model(path.name, registry_root=tmp_path)
+    X_new = rng.random((40, 5))
+    test_dmat = xgboost.DMatrix(X_new, feature_names=["f0", "f1", "f2", "f3", "f4"])
+
+    expected = loaded.model.predict(test_dmat, iteration_range=(0, 3))
+    full_model = loaded.model.predict(test_dmat)
+
+    assert not np.allclose(expected, full_model)
+    assert np.allclose(predict_loaded_model(loaded, test_dmat), expected)
 
 
 def test_list_versions_sorted_newest_first(tmp_path: Path, tiny_model) -> None:

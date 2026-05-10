@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.core.db import get_engine
 from src.core.models import MatchupFeature, Prediction
 from src.core.time import current_mlb_date
-from src.models.artifacts import load_model
+from src.models.artifacts import load_model, predict_loaded_model
 from src.models.calibrate import apply_calibrator, load_calibrator
 from src.models.per_game_hr import (
     GameMatchupInputs,
@@ -210,7 +210,7 @@ def generate_predictions_for_date(
         columns=feature_schema,
     )
     dmat = xgboost.DMatrix(feat_df.values, feature_names=feature_schema)
-    raw_xgb = loaded.model.predict(dmat)
+    raw_xgb = predict_loaded_model(loaded, dmat)
     if lgbm_booster is not None:
         raw_lgb = lgbm_booster.predict(feat_df, num_iteration=lgbm_booster.best_iteration)
         raw_probs = 0.5 * raw_xgb + 0.5 * raw_lgb
@@ -236,7 +236,7 @@ def generate_predictions_for_date(
             extra={"err": str(exc)},
         )
         try:
-            contribs = loaded.model.predict(dmat, pred_contribs=True)
+            contribs = predict_loaded_model(loaded, dmat, pred_contribs=True)
             # Drop trailing bias column
             shap_values = np.asarray(contribs[:, :-1])
         except Exception as exc2:  # noqa: BLE001
