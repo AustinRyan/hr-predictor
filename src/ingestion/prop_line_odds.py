@@ -109,9 +109,28 @@ def persist_mlb_batter_hr_odds(
     client: PropLineOddsClient | None = None,
     fetched_at: datetime | None = None,
 ) -> OddsIngestionReport:
-    """Fetch and persist MLB batter home-run odds for a slate date."""
+    """Fetch and persist PropLine MLB batter home-run odds for a slate date."""
+    return persist_mlb_batter_hr_odds_from_client(
+        target_date,
+        engine=engine,
+        client=client or PropLineClient(),
+        provider="prop_line",
+        provider_label="PropLine",
+        fetched_at=fetched_at,
+    )
+
+
+def persist_mlb_batter_hr_odds_from_client(
+    target_date: date,
+    *,
+    engine: Engine | None = None,
+    client: PropLineOddsClient,
+    provider: str,
+    provider_label: str,
+    fetched_at: datetime | None = None,
+) -> OddsIngestionReport:
+    """Fetch and persist MLB batter home-run odds from a compatible client."""
     engine = engine or get_engine()
-    client = client or PropLineClient()
     fetched_at = fetched_at or datetime.now(UTC)
 
     schedule_map = _load_schedule_map(engine, target_date)
@@ -124,10 +143,12 @@ def persist_mlb_batter_hr_odds(
             failures=[_failure_message("fetch_events", exc)],
         )
         _log.warning(
-            "prop line odds event fetch failed: %s",
+            "%s odds event fetch failed: %s",
+            provider_label,
             report.failures[0],
             extra={
                 "target_date": target_date.isoformat(),
+                "provider": provider,
                 "failures": report.failures,
             },
         )
@@ -158,7 +179,11 @@ def persist_mlb_batter_hr_odds(
             failures.append(_failure_message(event.event_id, exc))
             continue
 
-        flat_rows = flatten_batter_home_run_odds(event_odds, fetched_at=fetched_at)
+        flat_rows = flatten_batter_home_run_odds(
+            event_odds,
+            provider=provider,
+            fetched_at=fetched_at,
+        )
         rows_seen += len(flat_rows)
         for row in flat_rows:
             batter_id = player_map.get(_normalize_name(row.player_name))
@@ -237,6 +262,7 @@ def persist_mlb_batter_hr_odds(
         "prop line odds persisted",
         extra={
             "target_date": target_date.isoformat(),
+            "provider": provider,
             "events_seen": report.events_seen,
             "events_matched": report.events_matched,
             "rows_seen": report.rows_seen,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -12,8 +12,7 @@ from src.api.dependencies import _get_session_factory
 def _seed_rolling_predictions_with_outcomes(
     model_version: str, days_ago_start: int = 5, n: int = 20
 ) -> None:
-    """Seed N prediction rows + corresponding historical matchup_features rows
-    (with hr_on_pa populated) so /model/metrics has data to roll over."""
+    """Seed N prediction rows + full-game Statcast outcomes for /model/metrics."""
     sf = _get_session_factory()
     today = datetime.now(UTC).date()
     with sf() as s:
@@ -68,6 +67,20 @@ def _seed_rolling_predictions_with_outcomes(
                     "p": prob,
                 },
             )
+            s.execute(
+                text(
+                    "INSERT INTO statcast_pitches "
+                    "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, events) "
+                    "VALUES (:d, :gp, :ab, 1, :b, 730100, :event)"
+                ),
+                {
+                    "d": game_date,
+                    "gp": game_pk,
+                    "ab": i + 1,
+                    "b": batter_id,
+                    "event": "home_run" if hr_label else "strikeout",
+                },
+            )
         s.commit()
 
 
@@ -82,6 +95,10 @@ def _cleanup_rolling(n: int = 20) -> None:
         )
         s.execute(
             text("DELETE FROM matchup_features WHERE game_pk BETWEEN :a AND :b"),
+            {"a": first_gp, "b": last_gp},
+        )
+        s.execute(
+            text("DELETE FROM statcast_pitches WHERE game_pk BETWEEN :a AND :b"),
             {"a": first_gp, "b": last_gp},
         )
         s.commit()
@@ -112,7 +129,7 @@ async def test_model_metrics_returns_training_metrics(client) -> None:
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_model_metrics_rolling_empty_when_no_predictions(client) -> None:
-    """If there's no prediction+hr_on_pa data in the window, rolling is empty."""
+    """If there's no settled prediction data in the window, rolling is empty."""
     # Ensure nothing in window by cleaning up any stray seeds
     _cleanup_rolling(n=20)
     r = await client.get("/model/metrics?window_days=7")
@@ -127,7 +144,7 @@ async def test_model_metrics_rolling_empty_when_no_predictions(client) -> None:
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_model_metrics_rolling_populates_when_seeded(client) -> None:
-    """Seed fake prediction+outcome pairs within window; rolling metrics compute."""
+    """Seed fake prediction+full-game outcome pairs; rolling metrics compute."""
     from src.models.artifacts import load_model
 
     version = load_model().version
@@ -146,6 +163,68 @@ async def test_model_metrics_rolling_populates_when_seeded(client) -> None:
         assert len(rl["reliability"]) == 10
     finally:
         _cleanup_rolling(n=20)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_model_metrics_rolling_uses_full_game_hr_actual_not_starter_matchup(client) -> None:
+    """Full-game artifacts must settle on any batter HR in game, not mf.hr_on_pa."""
+    from src.models.artifacts import load_model
+
+    version = load_model().version
+    _cleanup_rolling(n=1)
+    game_date = date(2026, 2, 4)
+    sf = _get_session_factory()
+    with sf() as s:
+        s.execute(
+            text(
+                "INSERT INTO parks (park_id, name) "
+                "VALUES (99731, 'ML Park') ON CONFLICT DO NOTHING"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO players (mlbam_id, full_name) "
+                "VALUES (730001, 'ML Batter 0'), (730100, 'ML Pitcher') "
+                "ON CONFLICT DO NOTHING"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO matchup_features "
+                "(game_date, game_pk, batter_id, pitcher_id, is_historical, park_id, hr_on_pa) "
+                "VALUES (:d, 999010, 730001, 730100, TRUE, 99731, FALSE) "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"d": game_date},
+        )
+        s.execute(
+            text(
+                "INSERT INTO predictions "
+                "(game_pk, batter_id, pitcher_id, game_date, model_version, "
+                " matchup_components, prob_at_least_one_hr) "
+                "VALUES (999010, 730001, 730100, :d, :mv, :mc, 0.2) "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"d": game_date, "mv": version, "mc": '{"full_game_calibrated_prob": 0.2}'},
+        )
+        s.execute(
+            text(
+                "INSERT INTO statcast_pitches "
+                "(game_date, game_pk, at_bat_number, pitch_number, batter, pitcher, events) "
+                "VALUES (:d, 999010, 1, 1, 730001, 730101, 'home_run')"
+            ),
+            {"d": game_date},
+        )
+        s.commit()
+    try:
+        r = await client.get(f"/model/metrics?window_days=1&end_date={game_date}")
+        assert r.status_code == 200
+        body = r.json()
+        one_bin = next(b for b in body["rolling_live"]["reliability"] if b["count"] >= 1)
+        assert one_bin["actual_rate"] == pytest.approx(1.0)
+    finally:
+        _cleanup_rolling(n=1)
 
 
 @pytest.mark.asyncio

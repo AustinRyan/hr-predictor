@@ -4,6 +4,7 @@ import { Slate } from "@/components/landing/Slate";
 import { Scoreboard } from "@/components/landing/Scoreboard";
 import { Arc } from "@/components/landing/Arc";
 import { How } from "@/components/landing/How";
+import { ModelAudit } from "@/components/landing/ModelAudit";
 import { Handoff } from "@/components/landing/Handoff";
 import { Footer } from "@/components/landing/Footer";
 import { RankingsApp } from "@/components/rankings/RankingsApp";
@@ -62,6 +63,10 @@ export default async function HomePage() {
         <Scoreboard games={scoreboardGames} />
         <Arc />
         <How />
+        <ModelAudit
+          modelVersion={metrics?.training_metadata.model_version}
+          brier={metrics?.training_metrics.test_brier}
+        />
         <Handoff />
         <RankingsApp picks={picks} />
         <Footer />

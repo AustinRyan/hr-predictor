@@ -31,6 +31,18 @@ class Settings(BaseSettings):
         default="https://api.prop-line.com/v1",
         description="Base URL for PropLine's The-Odds-API-compatible endpoints.",
     )
+    the_odds_api_key: str | None = Field(
+        default=None,
+        description="The Odds API key for sportsbook player prop odds.",
+    )
+    the_odds_api_base_url: str = Field(
+        default="https://api.the-odds-api.com/v4",
+        description="Base URL for The Odds API v4 endpoints.",
+    )
+    the_odds_api_regions: str = Field(
+        default="us",
+        description="Comma-separated The Odds API regions to request.",
+    )
 
 
 @lru_cache(maxsize=1)

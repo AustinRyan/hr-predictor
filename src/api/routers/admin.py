@@ -118,6 +118,7 @@ def _run_pipeline(target_date: date) -> None:
     from src.features.builder import build_features_for_date
     from src.ingestion.daily_runner import run_daily
     from src.ingestion.prop_line_odds import persist_mlb_batter_hr_odds
+    from src.ingestion.the_odds_api_odds import persist_mlb_batter_hr_odds_from_the_odds_api
     from src.models.inference import generate_predictions_for_date
 
     try:
@@ -166,27 +167,63 @@ def _run_pipeline(target_date: date) -> None:
         _log.info("refresh: running inference", extra={"date": target_date.isoformat()})
         rows = generate_predictions_for_date(target_date)
 
-        odds_report: dict[str, Any] | None = None
+        odds_report: dict[str, Any] = {}
         _set_state(phase="odds", rows_written=int(rows))
-        if get_settings().prop_line_api_key:
+        settings = get_settings()
+        if settings.the_odds_api_key:
             try:
                 _log.info(
-                    "refresh: fetching PropLine odds", extra={"date": target_date.isoformat()}
+                    "refresh: fetching The Odds API odds",
+                    extra={"date": target_date.isoformat()},
                 )
-                odds = persist_mlb_batter_hr_odds(target_date)
-                odds_report = {
-                    "odds_events_seen": odds.events_seen,
-                    "odds_events_matched": odds.events_matched,
-                    "odds_rows_seen": odds.rows_seen,
-                    "odds_rows_written": odds.rows_written,
-                    "odds_unmatched_players": odds.unmatched_players[:25],
-                    "odds_failures": odds.failures,
-                }
+                odds = persist_mlb_batter_hr_odds_from_the_odds_api(target_date)
+                odds_report.update(
+                    {
+                        "odds_provider": "the_odds_api",
+                        "odds_events_seen": odds.events_seen,
+                        "odds_events_matched": odds.events_matched,
+                        "odds_rows_seen": odds.rows_seen,
+                        "odds_rows_written": odds.rows_written,
+                        "odds_unmatched_players": odds.unmatched_players[:25],
+                        "odds_failures": odds.failures,
+                    }
+                )
             except Exception as exc:  # noqa: BLE001
-                _log.warning("refresh: PropLine odds failed", exc_info=True)
-                odds_report = {"odds_failures": [str(exc)]}
+                _log.warning("refresh: The Odds API odds failed", exc_info=True)
+                odds_report.update({"odds_provider": "the_odds_api", "odds_failures": [str(exc)]})
+
+        if (
+            not settings.the_odds_api_key or int(odds_report.get("odds_rows_written") or 0) == 0
+        ) and settings.prop_line_api_key:
+            try:
+                _log.info(
+                    "refresh: fetching PropLine fallback odds",
+                    extra={"date": target_date.isoformat()},
+                )
+                fallback = persist_mlb_batter_hr_odds(target_date)
+                odds_report.update(
+                    {
+                        "fallback_odds_provider": "prop_line",
+                        "fallback_odds_events_seen": fallback.events_seen,
+                        "fallback_odds_events_matched": fallback.events_matched,
+                        "fallback_odds_rows_seen": fallback.rows_seen,
+                        "fallback_odds_rows_written": fallback.rows_written,
+                        "fallback_odds_unmatched_players": fallback.unmatched_players[:25],
+                        "fallback_odds_failures": fallback.failures,
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                _log.warning("refresh: PropLine fallback odds failed", exc_info=True)
+                odds_report.update({"fallback_odds_failures": [str(exc)]})
+
+        if not settings.the_odds_api_key and not settings.prop_line_api_key:
+            odds_report = {"odds_skipped": "THE_ODDS_API_KEY and PROP_LINE_API_KEY not configured"}
+        elif not settings.the_odds_api_key and settings.prop_line_api_key:
+            odds_report.setdefault("odds_provider", "prop_line")
+        elif settings.prop_line_api_key:
+            odds_report.setdefault("fallback_odds_skipped", "primary provider returned rows")
         else:
-            odds_report = {"odds_skipped": "PROP_LINE_API_KEY not configured"}
+            odds_report.setdefault("fallback_odds_skipped", "PROP_LINE_API_KEY not configured")
 
         _set_state(
             phase="flush_cache",

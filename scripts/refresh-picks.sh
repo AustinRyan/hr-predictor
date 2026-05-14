@@ -100,29 +100,50 @@ print(f'  predictions written: {rows}')
 
 echo
 echo "[4/4] fetching sportsbook odds"
-if [[ -z "${PROP_LINE_API_KEY:-}" ]]; then
-  echo "  skipped: PROP_LINE_API_KEY not set"
+if [[ -z "${THE_ODDS_API_KEY:-}" && -z "${PROP_LINE_API_KEY:-}" ]]; then
+  echo "  skipped: THE_ODDS_API_KEY and PROP_LINE_API_KEY not set"
 else
   uv run python -c "
 from datetime import date
 import re
 
 from src.ingestion.prop_line_odds import persist_mlb_batter_hr_odds
+from src.ingestion.the_odds_api_odds import persist_mlb_batter_hr_odds_from_the_odds_api
+from src.core.config import get_settings
 
 def _redact(value: str) -> str:
     return re.sub(r'([?&]apiKey=)[^&\s]+', r'\1***', value, flags=re.IGNORECASE)
 
-try:
-    r = persist_mlb_batter_hr_odds(date.fromisoformat('${TARGET_DATE}'))
-except Exception as exc:
-    msg = _redact(str(exc) or exc.__class__.__name__)
-    print(f'  odds skipped: {msg}')
-    print('  predictions are still current; rerun later to refresh sportsbook edge')
-else:
-    print(
-        f'  odds_rows={r.rows_written} events={r.events_matched}/{r.events_seen} '
-        f'unmatched_players={len(r.unmatched_players)} failures={r.failures}'
-    )
+target = date.fromisoformat('${TARGET_DATE}')
+settings = get_settings()
+primary_rows = 0
+if settings.the_odds_api_key:
+    try:
+        r = persist_mlb_batter_hr_odds_from_the_odds_api(target)
+    except Exception as exc:
+        msg = _redact(str(exc) or exc.__class__.__name__)
+        print(f'  the_odds_api skipped: {msg}')
+    else:
+        primary_rows = r.rows_written
+        print(
+            f'  the_odds_api rows={r.rows_written} events={r.events_matched}/{r.events_seen} '
+            f'unmatched_players={len(r.unmatched_players)} failures={r.failures}'
+        )
+
+if primary_rows == 0 and settings.prop_line_api_key:
+    try:
+        r = persist_mlb_batter_hr_odds(target)
+    except Exception as exc:
+        msg = _redact(str(exc) or exc.__class__.__name__)
+        print(f'  prop_line fallback skipped: {msg}')
+        print('  predictions are still current; rerun later to refresh sportsbook edge')
+    else:
+        print(
+            f'  prop_line fallback rows={r.rows_written} events={r.events_matched}/{r.events_seen} '
+            f'unmatched_players={len(r.unmatched_players)} failures={r.failures}'
+        )
+elif primary_rows > 0:
+    print('  prop_line fallback skipped: primary provider returned rows')
 "
 fi
 

@@ -4,7 +4,7 @@ export function Handoff() {
       <div className="handoff-inner">
         <div className="handoff-eyebrow">
           <span className="bar" />
-          <span>SECTION / 04 · THE BOARD</span>
+          <span>SECTION / 05 · THE BOARD</span>
         </div>
         <h2 className="handoff-title">
           THE SLATE IS LIVE.<br />

@@ -107,6 +107,23 @@ $ curl -s 'http://127.0.0.1:8765/picks/today?limit=5'
 ]
 ```
 
+### `GET /picks/history`
+Recent top-pick history settled against full-game Statcast HR outcomes.
+Defaults to the last 7 completed MLB dates and the top 10 picks per day.
+
+Query params:
+- `days: int = 7` (1-60)
+- `limit_per_day: int = 10` (1-50)
+- `end_date: date | None` — optional ISO date for backtests/tests; defaults
+  to yesterday's MLB date.
+
+Each row includes the model probability, daily rank, actual HR result,
+saved sportsbook odds when available, fair odds, edge, and realized
+one-unit profit/loss. The endpoint intentionally uses
+`statcast_pitches.events = 'home_run'` anywhere in the game, not
+`matchup_features.hr_on_pa`, so it matches the full-game sportsbook
+target.
+
 ### `GET /player/{mlbam_id}`
 Player profile + last-30-day rolling features + today's prediction (if
 any). 1-hour Redis cache.
@@ -184,9 +201,11 @@ $ curl -s http://127.0.0.1:8765/model/metrics
 ```
 
 `rolling_live` computes log loss, Brier, ECE, and a reliability table
-over the last 30 days of `predictions` rows whose `game_pk` has a
-resolved HR outcome in `statcast_pitches`. On day-1 of live predictions
-the window is empty.
+over the last 30 days of `predictions` rows whose game has landed in
+`statcast_pitches`. Actuals are full-game batter HR outcomes from
+`statcast_pitches.events = 'home_run'`, not the older starter-matchup
+`matchup_features.hr_on_pa` label. On day-1 of live predictions the
+window is empty.
 
 ## Caching
 

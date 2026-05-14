@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -12,7 +12,13 @@ from sqlalchemy.orm import Session
 
 from src.api.cache import cached
 from src.api.dependencies import get_db, get_model
-from src.api.schemas.picks import FeatureContribution, PickSummary
+from src.api.schemas.picks import (
+    FeatureContribution,
+    PickHistoryItem,
+    PickHistoryResponse,
+    PickHistorySummary,
+    PickSummary,
+)
 from src.core.time import current_mlb_date
 from src.models.artifacts import LoadedModel
 from src.models.odds import (
@@ -196,6 +202,114 @@ _PICKS_TODAY_SQL = text("""
     """)
 
 
+_PICKS_HISTORY_SQL = text("""
+    WITH settled_games AS (
+        SELECT DISTINCT game_pk
+        FROM statcast_pitches
+        WHERE game_date BETWEEN :from_date AND :to_date
+    ),
+    candidates AS (
+        SELECT
+            p.game_date,
+            p.game_pk,
+            p.batter_id,
+            p.pitcher_id,
+            p.prob_at_least_one_hr,
+            p.expected_hrs,
+            COALESCE(
+                NULLIF(p.matchup_components->>'full_game_raw_prob', '')::double precision,
+                NULLIF(p.matchup_components->>'starter_raw_prob', '')::double precision,
+                p.prob_at_least_one_hr
+            ) AS model_rank_score,
+            ds.game_start_utc,
+            bp.full_name AS batter_name,
+            pp.full_name AS pitcher_name,
+            pk.name AS park_name,
+            COALESCE(
+                tm_batter.abbr,
+                CASE
+                    WHEN mf.ctx_is_home IS TRUE THEN tm_home.abbr
+                    WHEN mf.ctx_is_home IS FALSE THEN tm_away.abbr
+                    ELSE NULL
+                END
+            ) AS team_abbr,
+            ROW_NUMBER() OVER (
+                PARTITION BY p.game_date
+                ORDER BY
+                    p.prob_at_least_one_hr DESC NULLS LAST,
+                    COALESCE(
+                        NULLIF(p.matchup_components->>'full_game_raw_prob', '')::double precision,
+                        NULLIF(p.matchup_components->>'starter_raw_prob', '')::double precision,
+                        p.prob_at_least_one_hr
+                    ) DESC NULLS LAST,
+                    mf.ctx_projected_pa DESC NULLS LAST,
+                    mf.ctx_batting_order ASC NULLS LAST,
+                    p.batter_id ASC
+            ) AS daily_rank,
+            (
+                SELECT COUNT(*)::int
+                FROM statcast_pitches sp_hr
+                WHERE sp_hr.game_pk = p.game_pk
+                  AND sp_hr.batter = p.batter_id
+                  AND sp_hr.events = 'home_run'
+            ) AS actual_hrs
+        FROM predictions p
+        JOIN settled_games sg ON sg.game_pk = p.game_pk
+        LEFT JOIN daily_schedule ds ON ds.game_pk = p.game_pk
+        LEFT JOIN parks pk ON pk.park_id = ds.venue_id
+        LEFT JOIN players bp ON bp.mlbam_id = p.batter_id
+        LEFT JOIN players pp ON pp.mlbam_id = p.pitcher_id
+        LEFT JOIN LATERAL (
+            SELECT pl.team_id
+            FROM projected_lineups pl
+            WHERE pl.game_pk = p.game_pk
+              AND pl.batter_id = p.batter_id
+            ORDER BY pl.is_confirmed DESC, pl.fetched_at DESC NULLS LAST, pl.batting_order ASC
+            LIMIT 1
+        ) batter_lineup ON TRUE
+        LEFT JOIN teams tm_batter ON tm_batter.team_id = batter_lineup.team_id
+        LEFT JOIN teams tm_home ON tm_home.team_id = ds.home_team_id
+        LEFT JOIN teams tm_away ON tm_away.team_id = ds.away_team_id
+        LEFT JOIN matchup_features mf
+          ON mf.game_pk = p.game_pk
+         AND mf.batter_id = p.batter_id
+         AND mf.pitcher_id = p.pitcher_id
+         AND mf.game_date = p.game_date
+        WHERE p.game_date BETWEEN :from_date AND :to_date
+          AND p.model_version = :model_version
+    )
+    SELECT
+        c.*,
+        bo.bookmaker_title AS odds_bookmaker,
+        bo.price_american AS odds_price_american,
+        bo.implied_probability AS market_implied_probability
+    FROM candidates c
+    LEFT JOIN LATERAL (
+        SELECT
+            os.bookmaker_title,
+            os.price_american,
+            os.implied_probability,
+            os.fetched_at
+        FROM odds_snapshots os
+        WHERE os.game_pk = c.game_pk
+          AND os.batter_id = c.batter_id
+          AND os.market_key = 'batter_home_runs'
+          AND os.outcome_name IN ('Over', 'Yes')
+          AND (os.point IS NULL OR ABS(os.point - 0.5) < 0.000001)
+          AND COALESCE(os.raw_outcome->>'name', '') !~*
+              '^\\s*[2-9][0-9]*\\+\\s+home runs?\\s*$'
+          AND (
+              c.game_start_utc IS NULL
+              OR os.fetched_at <= c.game_start_utc
+          )
+        ORDER BY os.price_american DESC, os.fetched_at DESC
+        LIMIT 1
+    ) bo ON TRUE
+    WHERE c.daily_rank <= :limit_per_day
+    ORDER BY c.game_date DESC, c.daily_rank ASC
+    """)
+
+
 def _row_to_pick(row) -> PickSummary:
     contribs_raw = row["feature_contributions"] or {}
     # Top model drivers by absolute contribution.
@@ -276,6 +390,80 @@ def _row_to_pick(row) -> PickSummary:
         opp_bp_pitches_last_3d=_f("opp_bp_pitches_last_3d"),
         top_contributing_features=contributions,
         model_version=row["model_version"],
+    )
+
+
+def _settled_profit_units(actual_hr: bool, odds_price: int | None) -> float | None:
+    if odds_price is None:
+        return None
+    if not actual_hr:
+        return -1.0
+    return odds_price / 100.0 if odds_price > 0 else 100.0 / abs(odds_price)
+
+
+def _row_to_history_item(row) -> PickHistoryItem:
+    def _f(key: str) -> float | None:
+        value = row[key]
+        return float(value) if value is not None else None
+
+    model_p = float(row["prob_at_least_one_hr"])
+    market_p = _f("market_implied_probability")
+    odds_price = row["odds_price_american"]
+    actual_hrs = int(row["actual_hrs"] or 0)
+    actual_hr = actual_hrs > 0
+    fair_odds = probability_to_fair_american(model_p) if 0.0 < model_p < 1.0 else None
+    return PickHistoryItem(
+        game_date=row["game_date"],
+        daily_rank=int(row["daily_rank"]),
+        batter_id=int(row["batter_id"]),
+        batter_name=row["batter_name"],
+        team_abbr=row["team_abbr"],
+        game_pk=int(row["game_pk"]),
+        pitcher_id=int(row["pitcher_id"]),
+        pitcher_name=row["pitcher_name"],
+        park_name=row["park_name"],
+        prob_at_least_one_hr=model_p,
+        expected_hrs=_f("expected_hrs"),
+        model_rank_score=_f("model_rank_score"),
+        actual_hr=actual_hr,
+        actual_hrs=actual_hrs,
+        odds_bookmaker=row["odds_bookmaker"],
+        odds_price_american=(int(odds_price) if odds_price is not None else None),
+        market_implied_probability=market_p,
+        fair_odds_american=fair_odds,
+        model_edge=(
+            edge_probability(model_probability=model_p, market_probability=market_p)
+            if market_p
+            else None
+        ),
+        settled_profit_units=_settled_profit_units(
+            actual_hr,
+            int(odds_price) if odds_price is not None else None,
+        ),
+    )
+
+
+def _history_summary(
+    *,
+    items: list[PickHistoryItem],
+    days: int,
+    limit_per_day: int,
+) -> PickHistorySummary:
+    picks = len(items)
+    hits = sum(1 for item in items if item.actual_hr)
+    settled_profits = [
+        item.settled_profit_units for item in items if item.settled_profit_units is not None
+    ]
+    settled_profit = sum(settled_profits) if settled_profits else None
+    return PickHistorySummary(
+        days=days,
+        limit_per_day=limit_per_day,
+        picks=picks,
+        hits=hits,
+        hit_rate=(hits / picks if picks else None),
+        expected_hits=sum(item.prob_at_least_one_hr for item in items),
+        picks_with_odds=len(settled_profits),
+        settled_profit_units=settled_profit,
     )
 
 
@@ -371,4 +559,39 @@ async def picks_today(
         model_version=loaded.version,
         request=request,
         db=db,
+    )
+
+
+@router.get("/history", response_model=PickHistoryResponse)
+def picks_history(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    days: Annotated[int, Query(ge=1, le=60)] = 7,
+    limit_per_day: Annotated[int, Query(ge=1, le=50)] = 10,
+    end_date: Annotated[date | None, Query()] = None,
+) -> PickHistoryResponse:
+    """Return recent top picks and whether each batter homered in that game."""
+    loaded = get_model(request)
+    to_date = end_date or (current_mlb_date() - timedelta(days=1))
+    from_date = to_date - timedelta(days=days - 1)
+    rows = (
+        db.execute(
+            _PICKS_HISTORY_SQL,
+            {
+                "from_date": from_date,
+                "to_date": to_date,
+                "model_version": loaded.version,
+                "limit_per_day": limit_per_day,
+            },
+        )
+        .mappings()
+        .all()
+    )
+    items = [_row_to_history_item(row) for row in rows]
+    return PickHistoryResponse(
+        model_version=loaded.version,
+        evaluated_from=(min((item.game_date for item in items), default=None)),
+        evaluated_to=(max((item.game_date for item in items), default=None)),
+        summary=_history_summary(items=items, days=days, limit_per_day=limit_per_day),
+        items=items,
     )

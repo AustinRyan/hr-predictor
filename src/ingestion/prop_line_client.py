@@ -225,6 +225,7 @@ def _is_primary_batter_home_run_outcome(outcome: PropLineOutcome) -> bool:
 def flatten_batter_home_run_odds(
     event: PropLineEventOdds,
     *,
+    provider: str = "prop_line",
     fetched_at: datetime | None = None,
 ) -> list[FlattenedPropOdds]:
     """Flatten one event response to home-run prop outcomes."""
@@ -239,7 +240,7 @@ def flatten_batter_home_run_odds(
                     continue
                 rows.append(
                     FlattenedPropOdds(
-                        provider="prop_line",
+                        provider=provider,
                         sport_key=event.sport_key,
                         event_id=event.event_id,
                         game_date=event.commence_time,

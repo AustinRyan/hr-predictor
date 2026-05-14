@@ -2,13 +2,25 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Nav } from "@/components/landing/Nav";
 import { Footer } from "@/components/landing/Footer";
+import { ModelHistoryCharts } from "@/components/charts/ModelHistoryCharts";
 import { ReliabilityChart } from "@/components/charts/ReliabilityChart";
-import { getModelMetrics } from "@/lib/api";
+import { HistoryTable } from "@/components/model/HistoryTable";
+import { getModelMetrics, getPickHistory } from "@/lib/api";
 
-export const revalidate = 900; // 15 min
+export const dynamic = "force-dynamic";
 
 function nullish(v: number | null, decimals = 4): string {
   return v === null ? "—" : v.toFixed(decimals);
+}
+
+function pct(v: number | null, decimals = 1): string {
+  return v === null ? "—" : `${(v * 100).toFixed(decimals)}%`;
+}
+
+function units(v: number | null): string {
+  if (v === null) return "—";
+  const sign = v >= 0 ? "+" : "";
+  return `${sign}${v.toFixed(2)}u`;
 }
 
 export default async function ModelPage() {
@@ -16,6 +28,7 @@ export default async function ModelPage() {
   if (!data) notFound();
 
   const { training_metadata: meta, training_metrics: metrics, rolling_live: live } = data;
+  const history = await getPickHistory(meta.model_version, 7, 20);
 
   return (
     <>
@@ -114,6 +127,47 @@ export default async function ModelPage() {
             <div className="detail-card-v small">{live.evaluated_to ?? "—"}</div>
           </div>
         </div>
+
+        <h2 className="section-num" style={{ marginTop: 48, marginBottom: 12 }}>
+          / TOP PICK HISTORY · 7D
+        </h2>
+        {history && history.items.length > 0 ? (
+          <>
+            <div className="detail-grid" style={{ marginBottom: 24 }}>
+              <div className="detail-card">
+                <div className="detail-card-k">TOP PICKS</div>
+                <div className="detail-card-v">{history.summary.picks}</div>
+                <div className="detail-card-sub">top 20 per settled day</div>
+              </div>
+              <div className="detail-card">
+                <div className="detail-card-k">HITS</div>
+                <div className="detail-card-v accent">{history.summary.hits}</div>
+                <div className="detail-card-sub">{pct(history.summary.hit_rate)} hit rate</div>
+              </div>
+              <div className="detail-card">
+                <div className="detail-card-k">EXPECTED HITS</div>
+                <div className="detail-card-v">{history.summary.expected_hits.toFixed(2)}</div>
+                <div className="detail-card-sub">sum of model probabilities</div>
+              </div>
+              <div className="detail-card">
+                <div className="detail-card-k">FLAT BET RESULT</div>
+                <div className="detail-card-v">{units(history.summary.settled_profit_units)}</div>
+                <div className="detail-card-sub">
+                  {history.summary.picks_with_odds} picks had saved odds
+                </div>
+              </div>
+            </div>
+            <ModelHistoryCharts items={history.items} />
+            <HistoryTable items={history.items} />
+          </>
+        ) : (
+          <div className="detail-card">
+            <div className="detail-card-k">NO SETTLED TOP PICKS YET</div>
+            <div className="detail-card-v small">
+              This fills after predictions and next-day Statcast results exist for the same model version.
+            </div>
+          </div>
+        )}
       </main>
       <Footer />
     </>

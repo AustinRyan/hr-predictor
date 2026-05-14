@@ -18,7 +18,7 @@ ui/
 │   ├── page.tsx          # composes landing sections
 │   └── globals.css       # ported design tokens + section styles (~900 lines)
 ├── components/
-│   ├── landing/          # server components (Nav, Hero, Slate, Scoreboard, ArcPlaceholder, How, Handoff, Footer)
+│   ├── landing/          # server components (Nav, Hero, Slate, Scoreboard, Arc, How, ModelAudit, Handoff, Footer)
 │   └── rankings/
 │       └── RankingsApp.tsx  # client component — filters + evidence-led board + parlay rail
 ├── lib/
@@ -26,7 +26,9 @@ ui/
 │   ├── ranking-sort.ts   # shared leaderboard filtering/sorting helpers
 │   └── mock-data.ts      # legacy design fixtures only; not used as runtime fallback
 ├── scripts/
-│   └── verify-ranking-sort.mjs  # tiny Node check for board sort behavior
+│   ├── verify-ranking-sort.mjs       # tiny Node check for board sort behavior
+│   ├── verify-model-history-charts.mjs
+│   └── verify-history-table-style.mjs # style contract for settled-picks table
 └── remotion/             # renderable promotional video compositions
 ```
 
@@ -44,6 +46,17 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
   visible homepage no longer falls back to mock picks; query failures or
   empty slates render explicit empty states.
 - **Stage 5:** `/player/[id]`, `/matchup/[gamePk]/[batterId]`, `/model` pages in same aesthetic.
+- **Landing model audit entry:** homepage includes a `ModelAudit` band that
+  links directly to `/model` and surfaces the active model version/test Brier
+  beside the main board flow.
+- **Pick history:** `/model` shows recent top-pick history from settled
+  Statcast outcomes: top N picks per completed day, hit/miss, saved odds
+  when available, and flat one-unit profit/loss. It also renders audit
+  charts for expected-vs-actual hits by day, cumulative units, and rank-band
+  calibration, plus a client-side day filter for viewing each settled day's
+  top 20 and daily unit total. This uses full-game HR actuals, matching the
+  promoted full-game model target, and `/model` is dynamic so refresh-script
+  updates are visible on reload.
 - **Mobile hardening:** coarse-pointer/small-screen devices render a compact
   static arc card instead of the full scroll-physics arc. Leaderboard sort
   behavior lives in `lib/ranking-sort.ts` and is covered by
@@ -80,6 +93,12 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
   values (`HR/PA`, barrel%, hard-hit%, handed split, recent load). Keep this
   display nullable-safe because old predictions and starter-only artifacts
   will not have every full-game key.
+- The model page mirrors backend metric/history semantics without calling
+  FastAPI. Rolling live metrics and pick history settle via
+  `statcast_pitches.events = 'home_run'` anywhere in the game, not
+  `matchup_features.hr_on_pa`. The settled-picks table has a lightweight
+  style contract in `npm run test:history-table-style`; keep its desktop
+  column widths and mobile card transformation intact when adding fields.
 - Mobile filter controls should remain touch-sized (44px minimum) and the
   `MODEL LIFT` sort must continue using `sortPicksForBoard` rather than
   duplicating ad hoc comparator logic in the component.
@@ -92,6 +111,8 @@ npm run dev      # :3000
 npm run build    # prod build
 npm run lint     # eslint
 npm run test:ranking-sort
+npm run test:model-charts
+npm run test:history-table-style
 npm run remotion # Remotion Studio on :3001
 npm run render:promo
 ```

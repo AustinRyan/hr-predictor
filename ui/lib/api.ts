@@ -15,11 +15,13 @@
 import type {
   MatchupDetail,
   ModelMetricsResponse,
+  PickHistoryResponse,
   PickSummary,
   PlayerDetail,
 } from "./types";
 import { matchupDetail as queryMatchup } from "./queries/matchup";
 import { modelMetrics as queryModelMetrics } from "./queries/model";
+import { pickHistory as queryPickHistory } from "./queries/pick-history";
 import { picksToday as queryPicksToday } from "./queries/picks";
 import { playerDetail as queryPlayer } from "./queries/player";
 
@@ -61,4 +63,12 @@ export async function getMatchup(
 
 export async function getModelMetrics(): Promise<ModelMetricsResponse | null> {
   return safe(() => queryModelMetrics(), "modelMetrics");
+}
+
+export async function getPickHistory(
+  modelVersion: string,
+  days = 7,
+  limitPerDay = 10,
+): Promise<PickHistoryResponse | null> {
+  return safe(() => queryPickHistory(modelVersion, days, limitPerDay), "pickHistory");
 }

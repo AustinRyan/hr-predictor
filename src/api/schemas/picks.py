@@ -85,3 +85,57 @@ class PickSummary(BaseModel):
     top_contributing_features: list[FeatureContribution] = Field(default_factory=list)
 
     model_version: str
+
+
+class PickHistoryItem(BaseModel):
+    """One previously generated top pick with resolved full-game outcome."""
+
+    model_config = ConfigDict(frozen=True)
+
+    game_date: date
+    daily_rank: int
+    batter_id: int
+    batter_name: str | None
+    team_abbr: str | None = None
+    game_pk: int
+    pitcher_id: int
+    pitcher_name: str | None = None
+    park_name: str | None = None
+    prob_at_least_one_hr: float
+    expected_hrs: float | None = None
+    model_rank_score: float | None = None
+    actual_hr: bool
+    actual_hrs: int
+    odds_bookmaker: str | None = None
+    odds_price_american: int | None = None
+    market_implied_probability: float | None = None
+    fair_odds_american: int | None = None
+    model_edge: float | None = None
+    settled_profit_units: float | None = None
+
+
+class PickHistorySummary(BaseModel):
+    """Aggregate outcome stats for returned historical picks."""
+
+    model_config = ConfigDict(frozen=True)
+
+    days: int
+    limit_per_day: int
+    picks: int
+    hits: int
+    hit_rate: float | None
+    expected_hits: float
+    picks_with_odds: int
+    settled_profit_units: float | None
+
+
+class PickHistoryResponse(BaseModel):
+    """Recent model top-pick history with full-game HR settlement."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model_version: str
+    evaluated_from: date | None
+    evaluated_to: date | None
+    summary: PickHistorySummary
+    items: list[PickHistoryItem]

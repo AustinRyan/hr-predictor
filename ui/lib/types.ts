@@ -247,3 +247,45 @@ export type ModelMetricsResponse = {
   training_metrics: TrainingMetrics;
   rolling_live: RollingLiveMetrics;
 };
+
+export type PickHistoryItem = {
+  game_date: string;
+  daily_rank: number;
+  batter_id: number;
+  batter_name: string | null;
+  team_abbr: string | null;
+  game_pk: number;
+  pitcher_id: number;
+  pitcher_name: string | null;
+  park_name: string | null;
+  prob_at_least_one_hr: number;
+  expected_hrs: number | null;
+  model_rank_score: number | null;
+  actual_hr: boolean;
+  actual_hrs: number;
+  odds_bookmaker: string | null;
+  odds_price_american: number | null;
+  market_implied_probability: number | null;
+  fair_odds_american: number | null;
+  model_edge: number | null;
+  settled_profit_units: number | null;
+};
+
+export type PickHistorySummary = {
+  days: number;
+  limit_per_day: number;
+  picks: number;
+  hits: number;
+  hit_rate: number | null;
+  expected_hits: number;
+  picks_with_odds: number;
+  settled_profit_units: number | null;
+};
+
+export type PickHistoryResponse = {
+  model_version: string;
+  evaluated_from: string | null;
+  evaluated_to: string | null;
+  summary: PickHistorySummary;
+  items: PickHistoryItem[];
+};

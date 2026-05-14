@@ -26,6 +26,8 @@ deployed site reads.
    | Name | Value |
    |---|---|
    | `DATABASE_URL` | Paste the pooled Neon connection string from your Neon dashboard. Do not commit the value. |
+   | `THE_ODDS_API_KEY` | Optional for any future hosted odds tasks; keep secret. Local refreshes read this from root `.env`. |
+   | `PROP_LINE_API_KEY` | Optional fallback odds key; keep secret. |
 
    Do NOT set `NEXT_PUBLIC_ALLOW_REFRESH` — keep the button hidden in prod.
 

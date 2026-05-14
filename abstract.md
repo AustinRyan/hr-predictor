@@ -1,9 +1,9 @@
 # HR Predictor — Abstract
 
-**Updated:** 2026-05-11 — bullpen/full-game model merged locally
+**Updated:** 2026-05-13 — Odds API primary + top-pick history
 
 ## Current phase
-**Post-Phase 7 modeling hardening** — opponent bullpen features and full-game HR probability plumbing have been fast-forward merged into local `main`. Local refreshes now point at the full-game bullpen artifact `v20260510_163447`; run a current-slate refresh to write those probabilities to Neon.
+**Post-Phase 7 betting validation hardening** — opponent bullpen features and full-game HR probability plumbing are on local `main`; local refreshes point at full-game artifact `v20260510_163447`. Current focus is sportsbook reliability and settled top-pick history so model edge can be judged against actual outcomes, not just daily rankings.
 
 ## Project elevator pitch
 Per-game MLB home-run probability predictor for prop-betting decision support. Local-first Python/Next.js stack. Trained on Statcast 2021–present. Calibration-first evaluation (Brier, ECE, reliability curves). Phased development; context clears between phases.
@@ -134,6 +134,8 @@ See `MASTER_PLAN.md` → "Core design decisions" table. In short:
 - **Refresh/date backfill hardening (2026-05-09):** `python -m src.features.builder` now supports `--start/--end`, `--date`, `--game-pk`, and `--today` for controlled feature rebuilds. `scripts/refresh-picks.sh` now threads an explicit target date into feature building as well as inference, avoiding wrong-slate refreshes during date overrides.
 - **Bullpen-only historical rollout + promoted local model (2026-05-10/11):** `src.features.builder --team-bullpen-only` repairs existing `opp_team_id`/`opp_bp_*` columns without rebuilding all feature families. Local Docker historical backfill updated 668,100 rows in 12.3 min; 100% now have `opp_team_id`, 662,185 have prior bullpen rates. Full-game artifact `v20260510_163447` trained on the populated data and beats current starter artifact on full-game test labels: log_loss 0.3426 vs 0.3654, brier 0.0985 vs 0.1023, precision@top20 0.2237 vs 0.1976. Local `registry/PRODUCTION` now points at `v20260510_163447`; registry artifacts remain gitignored.
 - **Early-stopping inference fix (2026-05-10):** loaded XGBoost `Booster` artifacts now predict through `predict_loaded_model()`, which honors saved `best_iteration`. This keeps served probabilities aligned with training/evaluation metrics for early-stopped sklearn-wrapper artifacts.
+- **The Odds API primary odds provider (2026-05-13):** `THE_ODDS_API_KEY` powers The Odds API v4 `baseball_mlb` / `batter_home_runs` ingestion as the first sportsbook source; PropLine remains a fallback when the primary provider returns zero rows or fails. Both providers persist into `odds_snapshots` with provider tags and the same 1+ HR / Over 0.5 ladder filter.
+- **Settled top-pick history (2026-05-13):** `/picks/history` and the frontend `/model` page now show recent top picks by completed day, full-game HR hit/miss, saved odds, and flat one-unit profit/loss. Rolling live metrics were corrected to settle against full-game Statcast HR outcomes rather than `matchup_features.hr_on_pa`, which is starter-matchup semantics.
 - **5 routes:** `/` (ISR 5m), `/model` (ISR 5m), `/player/[id]` (dynamic), `/matchup/[gamePk]/[batterId]` (dynamic), styled `/not-found`. Detail pages have no mock fallback — `notFound()` fires cleanly on missing data.
 - **Reliability chart is hand-rolled SVG.** The PROMPT mentioned recharts; it was removed mid-build because recharts' default visual language fights the stadium-brutalist aesthetic and the data shapes are simple enough that an ~80-line SVG component is cleaner. Future charts follow the same pattern.
 - **Next.js 16.2.4 (not 15).** `create-next-app` pulled the newer stable. All features used work identically to the 15 spec.

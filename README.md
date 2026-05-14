@@ -127,9 +127,11 @@ That script runs the daily pipeline:
 2. Fill proxy lineups when official lineups are missing.
 3. Build matchup features for the target slate.
 4. Run model inference and write predictions.
-5. Fetch sportsbook odds when `PROP_LINE_API_KEY` is configured.
+5. Fetch sportsbook odds. The Odds API is primary when
+   `THE_ODDS_API_KEY` is configured; PropLine remains a fallback when
+   `PROP_LINE_API_KEY` is configured and the primary source returns zero rows.
 
-If `PROP_LINE_API_KEY` is not set, the odds step is skipped and predictions
+If neither sportsbook key is set, the odds step is skipped and predictions
 still run.
 
 ## Model Artifacts
@@ -180,6 +182,9 @@ Root `.env`:
 DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST/DB?sslmode=require
 REDIS_URL=redis://localhost:6379/0
 LOG_LEVEL=INFO
+THE_ODDS_API_KEY=
+THE_ODDS_API_BASE_URL=https://api.the-odds-api.com/v4
+THE_ODDS_API_REGIONS=us
 PROP_LINE_API_KEY=
 PROP_LINE_BASE_URL=https://api.prop-line.com/v1
 ```
@@ -191,8 +196,8 @@ DATABASE_URL=postgresql://USER:PASSWORD@HOST/DB?sslmode=require
 NEXT_PUBLIC_ALLOW_REFRESH=false
 ```
 
-`PROP_LINE_API_KEY` is optional and should only be stored in local or deployment
-environment variables.
+Sportsbook API keys are optional and should only be stored in local or
+deployment environment variables.
 
 ## Security Notes
 

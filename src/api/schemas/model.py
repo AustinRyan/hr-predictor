@@ -50,7 +50,7 @@ class ReliabilityBin(BaseModel):
 
 class RollingLiveMetrics(BaseModel):
     """Performance over the last N days where prediction outcomes are known
-    (i.e., historical matchup_features rows have hr_on_pa populated)."""
+    (i.e., Statcast rows exist for the game and full-game HR actual can settle)."""
 
     model_config = ConfigDict(frozen=True)
 

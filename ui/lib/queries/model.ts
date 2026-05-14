@@ -19,34 +19,35 @@ import type {
   TrainingMetrics,
 } from "@/lib/types";
 
-// From src/models/registry/v20260423_231941/training_metadata.json
+// From src/models/registry/v20260510_163447/training_metadata.json
 const PRODUCTION_METADATA: TrainingMetadata = {
-  model_version: "v20260423_231941",
-  git_sha: "30306dbf9fdf4dce3da03dc597241b68fcbd7431",
-  data_hash: "768ea7ce54a83de878ed4be444061c33558265b1cba96de7e4aeebb5c81ef7a4",
+  model_version: "v20260510_163447",
+  git_sha: "35944b4c1f12f26797ceef9ab08b72bfd493f4bb",
+  data_hash: null,
   training_range: ["2021-04-01", "2026-04-21"],
-  num_features: 118,
-  created_at_utc: "2026-04-23T23:19:41.663360+00:00",
+  num_features: 127,
+  created_at_utc: null,
   config: {
-    model_type: "xgboost+lightgbm_ensemble",
-    n_estimators: 600,
-    max_depth: 4,
+    model_type: "xgboost",
+    n_estimators: 500,
+    max_depth: 5,
     learning_rate: 0.05,
-    ensemble: "50_50_average",
+    target: "full_game_hr",
+    uses_team_bullpen_features: true,
   },
 };
 
-// From src/models/registry/v20260423_231941/metrics.json
+// From src/models/registry/v20260510_163447/metrics.json
 const PRODUCTION_METRICS: TrainingMetrics = {
-  train_log_loss: 0.17541477537098893,
-  val_log_loss: 0.1793938105470933,
-  test_log_loss: 0.18010656776599882,
-  train_brier: 0.04306182449063401,
-  val_brier: 0.043351478697956886,
-  test_brier: 0.04343698449209702,
-  test_auc: 0.6638959409394987,
-  test_ece: 0.006405363004101602,
-  test_precision_at_top_k: 0.12116182572614109,
+  train_log_loss: 0.33341564939928503,
+  val_log_loss: 0.34071741197359,
+  test_log_loss: 0.34261646922575895,
+  train_brier: 0.09710433912643678,
+  val_brier: 0.09815293394212818,
+  test_brier: 0.09852788145935082,
+  test_auc: 0.6474805879509337,
+  test_ece: 0.004617698121894374,
+  test_precision_at_top_k: 0.22367256637168142,
 };
 
 function logLoss(actuals: number[], preds: number[]): number {
@@ -107,23 +108,25 @@ async function computeRollingLive(
   windowDays = 30,
 ): Promise<RollingLiveMetrics> {
   const rows = (await sql`
+    WITH settled_games AS (
+      SELECT DISTINCT game_pk
+      FROM statcast_pitches
+      WHERE game_date >= CURRENT_DATE - (${windowDays - 1} || ' days')::interval
+    )
     SELECT
       p.prob_at_least_one_hr::float AS pred,
-      CASE
-        WHEN mf.hr_on_pa IS TRUE THEN 1
-        WHEN mf.hr_on_pa IS FALSE THEN 0
-        ELSE NULL
-      END AS actual,
+      CASE WHEN EXISTS (
+        SELECT 1
+        FROM statcast_pitches sp_hr
+        WHERE sp_hr.game_pk = p.game_pk
+          AND sp_hr.batter = p.batter_id
+          AND sp_hr.events = 'home_run'
+      ) THEN 1 ELSE 0 END AS actual,
       p.game_date
     FROM predictions p
-    JOIN matchup_features mf
-      ON mf.game_pk = p.game_pk
-     AND mf.batter_id = p.batter_id
-     AND mf.pitcher_id = p.pitcher_id
-    WHERE p.game_date >= CURRENT_DATE - (${windowDays} || ' days')::interval
+    JOIN settled_games sg ON sg.game_pk = p.game_pk
+    WHERE p.game_date >= CURRENT_DATE - (${windowDays - 1} || ' days')::interval
       AND p.model_version = ${modelVersion}
-      AND mf.is_historical
-      AND mf.hr_on_pa IS NOT NULL
   `) as unknown as { pred: number; actual: number; game_date: Date | string }[];
 
   if (rows.length === 0) {

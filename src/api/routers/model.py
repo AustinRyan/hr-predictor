@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
 import numpy as np
@@ -32,24 +32,27 @@ router = APIRouter(prefix="/model", tags=["model"])
 
 
 _ROLLING_LIVE_SQL = text("""
+    WITH settled_games AS (
+        SELECT DISTINCT game_pk
+        FROM statcast_pitches
+        WHERE game_date >= :from_date
+          AND game_date <= :to_date
+    )
     SELECT
         p.prob_at_least_one_hr AS pred,
-        CASE
-            WHEN mf.hr_on_pa IS TRUE THEN 1
-            WHEN mf.hr_on_pa IS FALSE THEN 0
-            ELSE NULL
-        END AS actual,
+        CASE WHEN EXISTS (
+            SELECT 1
+            FROM statcast_pitches sp_hr
+            WHERE sp_hr.game_pk = p.game_pk
+              AND sp_hr.batter = p.batter_id
+              AND sp_hr.events = 'home_run'
+        ) THEN 1 ELSE 0 END AS actual,
         p.game_date
     FROM predictions p
-    JOIN matchup_features mf
-      ON mf.game_pk = p.game_pk
-     AND mf.batter_id = p.batter_id
-     AND mf.pitcher_id = p.pitcher_id
+    JOIN settled_games sg ON sg.game_pk = p.game_pk
     WHERE p.game_date >= :from_date
       AND p.game_date <= :to_date
       AND p.model_version = :model_version
-      AND mf.is_historical
-      AND mf.hr_on_pa IS NOT NULL
     """)
 
 
@@ -66,9 +69,14 @@ def _empty_rolling(window_days: int) -> RollingLiveMetrics:
     )
 
 
-def _compute_rolling_live(db: Session, model_version: str, window_days: int) -> RollingLiveMetrics:
-    to_date = datetime.now(UTC).date()
-    from_date = to_date - timedelta(days=window_days)
+def _compute_rolling_live(
+    db: Session,
+    model_version: str,
+    window_days: int,
+    to_date: date | None = None,
+) -> RollingLiveMetrics:
+    to_date = to_date or datetime.now(UTC).date()
+    from_date = to_date - timedelta(days=window_days - 1)
     rows = db.execute(
         _ROLLING_LIVE_SQL,
         {
@@ -127,6 +135,7 @@ def model_metrics(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     window_days: Annotated[int, Query(ge=1, le=180)] = 30,
+    end_date: Annotated[date | None, Query()] = None,
 ) -> ModelMetricsResponse:
     loaded = get_model(request)
     meta_raw = loaded.training_metadata
@@ -152,7 +161,7 @@ def model_metrics(
         test_ece=metrics_raw.get("test_ece"),
         test_precision_at_top_k=metrics_raw.get("test_precision_at_top_k"),
     )
-    rolling = _compute_rolling_live(db, loaded.version, window_days)
+    rolling = _compute_rolling_live(db, loaded.version, window_days, end_date)
 
     return ModelMetricsResponse(
         training_metadata=metadata,
