@@ -14,6 +14,9 @@ export function Nav() {
         <a href="#app">Launch app</a>
       </nav>
       <div className="nav-meta">
+        <a className="nav-history-link" href="/model">
+          History
+        </a>
         <span className="live-dot" aria-hidden="true" />
         <span>LIVE</span>
       </div>

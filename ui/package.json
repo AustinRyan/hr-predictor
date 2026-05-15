@@ -10,6 +10,7 @@
     "test:ranking-sort": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/verify-ranking-sort.mjs",
     "test:model-charts": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/verify-model-history-charts.mjs",
     "test:history-table-style": "node scripts/verify-history-table-style.mjs",
+    "test:nav-history": "node scripts/verify-nav-history-link.mjs",
     "music:promo": "node remotion/generate-promo-music.mjs",
     "remotion": "npm run music:promo && remotion studio remotion/index.ts --port=3001",
     "render:promo": "npm run music:promo && remotion render remotion/index.ts HomerunPromo out/homerun-promo.mp4",

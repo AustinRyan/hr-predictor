@@ -113,6 +113,7 @@ npm run lint     # eslint
 npm run test:ranking-sort
 npm run test:model-charts
 npm run test:history-table-style
+npm run test:nav-history
 npm run remotion # Remotion Studio on :3001
 npm run render:promo
 ```
