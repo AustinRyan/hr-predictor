@@ -70,8 +70,20 @@ def test_boxscore_response_extracts_batting_order() -> None:
                     593428,
                 ],
                 "players": {
-                    "ID592450": {"person": {"id": 592450}, "battingOrder": "100"},
-                    "ID624413": {"person": {"id": 624413}, "battingOrder": "200"},
+                    "ID592450": {
+                        "person": {"id": 592450, "fullName": "Aaron Judge"},
+                        "position": {"abbreviation": "RF"},
+                        "batSide": {"code": "R"},
+                        "pitchHand": {"code": "R"},
+                        "battingOrder": "100",
+                    },
+                    "ID624413": {
+                        "person": {"id": 624413, "fullName": "Gleyber Torres"},
+                        "position": {"abbreviation": "2B"},
+                        "batSide": {"code": "R"},
+                        "pitchHand": {"code": "R"},
+                        "battingOrder": "200",
+                    },
                 },
             },
             "away": {
@@ -95,6 +107,11 @@ def test_boxscore_response_extracts_batting_order() -> None:
         593428,
     ]
     assert bx.teams.away.batting_order == [514888, 608324]
+    assert bx.teams.home.players["ID592450"].mlbam_id == 592450
+    assert bx.teams.home.players["ID592450"].full_name == "Aaron Judge"
+    assert bx.teams.home.players["ID592450"].bats == "R"
+    assert bx.teams.home.players["ID592450"].throws == "R"
+    assert bx.teams.home.players["ID592450"].primary_position == "RF"
 
 
 def test_openmeteo_forecast_parses_hourly_arrays() -> None:

@@ -227,12 +227,16 @@ Consistent `{error: str, detail?: str}` body:
 - `/picks/today`, `/player/{id}`, and `/matchup/*` only expose rows for
   the model version loaded into app state. Historical/stale prediction
   versions can remain in the DB without leaking into current responses.
-- `/picks/today` joins the latest best available PropLine
+- `/picks/today` joins the latest best available sportsbook
   `batter_home_runs` 1+ HR / Over 0.5 snapshot per `(game_pk, batter_id)`
   when odds have been ingested. The query also rejects older persisted
   `2+ Home Runs` / `3+ Home Runs` alternate-ladder rows so model edge
   always compares like-for-like. Odds fields are nullable so stale/missing
   provider data does not hide predictions.
+- Pick and matchup responses prefer `players.full_name`, then fall back
+  to the normalized sportsbook `player_name` when available. The primary
+  fix for rookies/recent call-ups still belongs in daily StatsAPI
+  ingestion, which now seeds `players` from boxscore player refs.
 - `/picks/today` deliberately tie-breaks equal calibrated probabilities
   by raw model score (`matchup_components.full_game_raw_prob` for
   full-game artifacts, otherwise `starter_raw_prob`; exposed as

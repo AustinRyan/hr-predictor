@@ -32,7 +32,8 @@ All external responses are parsed through Pydantic wire models
   `(park_id, season, batter_handedness, metric)`.
 - `mlb_statsapi.persist_daily_schedule(target_date, engine=...)` —
   one-date orchestrator: hits schedule + boxscore + feed/live per
-  game; upserts `daily_schedule` + `projected_lineups`.
+  game; upserts `daily_schedule`, `projected_lineups`, and lightweight
+  `players` rows from probable pitchers + boxscore player refs.
 - `weather.persist_weather_for_today(target_date=None, engine=...)` —
   one Open-Meteo call per non-dome game in the target/current MLB-date
   `daily_schedule`; skips dome parks entirely (`roof_type = 'dome'`).
@@ -119,6 +120,11 @@ from src.ingestion.scheduler import build_scheduler, start_scheduler
   runs may yield zero `projected_lineups` rows; the hourly pre-game
   refresh fills them in. Upsert handles both passes via
   `(game_pk, team_id, batting_order)` uniqueness.
+- **Daily StatsAPI is also the player-name safety net.** Rookies/recent
+  call-ups can appear in lineups before historical Statcast has seeded
+  `players`. `persist_daily_schedule` therefore upserts names, handedness,
+  and position from the boxscore `players` map and probable-pitcher refs;
+  do not remove this as "duplicate" of the Statcast backfill.
 - **Weather `fetched_at` advances each run** — the
   `(park_id, forecast_for_utc, fetched_at)` unique key means each
   `persist_weather_for_today` call writes a new row per game (by design:

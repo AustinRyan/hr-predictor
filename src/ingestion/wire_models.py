@@ -278,11 +278,60 @@ class BoxscoreTeamRef(BaseModel):
     id: int | None = None
 
 
+class BoxscorePerson(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    id: int | None = None
+    full_name: str | None = Field(default=None, alias="fullName")
+
+
+class BoxscorePosition(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    abbreviation: str | None = None
+
+
+class BoxscoreHand(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    code: str | None = None
+
+
+class BoxscorePlayer(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    person: BoxscorePerson = Field(default_factory=BoxscorePerson)
+    position: BoxscorePosition | None = None
+    bat_side: BoxscoreHand | None = Field(default=None, alias="batSide")
+    pitch_hand: BoxscoreHand | None = Field(default=None, alias="pitchHand")
+
+    @property
+    def mlbam_id(self) -> int | None:
+        return self.person.id
+
+    @property
+    def full_name(self) -> str | None:
+        return self.person.full_name
+
+    @property
+    def bats(self) -> str | None:
+        return self.bat_side.code if self.bat_side is not None else None
+
+    @property
+    def throws(self) -> str | None:
+        return self.pitch_hand.code if self.pitch_hand is not None else None
+
+    @property
+    def primary_position(self) -> str | None:
+        return self.position.abbreviation if self.position is not None else None
+
+
 class BoxscoreTeamSide(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     team: BoxscoreTeamRef = Field(default_factory=BoxscoreTeamRef)
     batting_order: list[int] = Field(default_factory=list, alias="battingOrder")
+    players: dict[str, BoxscorePlayer] = Field(default_factory=dict)
 
 
 class BoxscoreTeams(BaseModel):

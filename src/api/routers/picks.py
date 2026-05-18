@@ -64,6 +64,7 @@ _PICKS_TODAY_SQL = text("""
             batter_id,
             bookmaker_key,
             bookmaker_title,
+            player_name,
             price_american,
             point,
             implied_probability,
@@ -110,7 +111,7 @@ _PICKS_TODAY_SQL = text("""
         bo.no_vig_probability AS market_no_vig_probability,
         bo.fetched_at AS odds_fetched_at,
         ds.game_start_utc,
-        bp.full_name AS batter_name,
+        COALESCE(bp.full_name, bo.player_name) AS batter_name,
         bp.bats AS batter_bats,
         bp.primary_position AS batter_position,
         pp.full_name AS pitcher_name,
@@ -222,7 +223,7 @@ _PICKS_HISTORY_SQL = text("""
                 p.prob_at_least_one_hr
             ) AS model_rank_score,
             ds.game_start_utc,
-            bp.full_name AS batter_name,
+            COALESCE(bp.full_name, odds_name.player_name) AS batter_name,
             pp.full_name AS pitcher_name,
             pk.name AS park_name,
             COALESCE(
@@ -259,6 +260,19 @@ _PICKS_HISTORY_SQL = text("""
         LEFT JOIN parks pk ON pk.park_id = ds.venue_id
         LEFT JOIN players bp ON bp.mlbam_id = p.batter_id
         LEFT JOIN players pp ON pp.mlbam_id = p.pitcher_id
+        LEFT JOIN LATERAL (
+            SELECT os.player_name
+            FROM odds_snapshots os
+            WHERE os.game_pk = p.game_pk
+              AND os.batter_id = p.batter_id
+              AND os.market_key = 'batter_home_runs'
+              AND os.outcome_name IN ('Over', 'Yes')
+              AND (os.point IS NULL OR ABS(os.point - 0.5) < 0.000001)
+              AND COALESCE(os.raw_outcome->>'name', '') !~*
+                  '^\\s*[2-9][0-9]*\\+\\s+home runs?\\s*$'
+            ORDER BY os.fetched_at DESC, os.market_last_update DESC NULLS LAST, os.id DESC
+            LIMIT 1
+        ) odds_name ON TRUE
         LEFT JOIN LATERAL (
             SELECT pl.team_id
             FROM projected_lineups pl

@@ -81,6 +81,10 @@ All tokens live as CSS custom properties in `globals.css` under `:root` and `[da
   model-vs-baseline lift so the UI remains populated. Selecting the
   `MODEL LIFT` sort filters the board to rows with real sportsbook odds
   (`Pick.bookOdds`); use probability or E[HR] sorts for the full slate.
+- Player display names come from the `players` dimension first, with a
+  sportsbook `odds_snapshots.player_name` fallback in picks, history, and
+  matchup queries. New daily refreshes should fill rookie/call-up names at
+  ingestion time via MLB StatsAPI boxscore player refs.
 - Equal displayed probabilities are expected with isotonic calibration.
   The board uses `PickSummary.model_rank_score` as a deterministic raw-score
   tie-breaker and shows it as `RAW` under `P(HR)` so tied calibrated buckets

@@ -36,7 +36,7 @@ _MATCHUP_SQL = text("""
         pk.name AS park_name,
         pk.elevation_ft AS park_elev_ft,
         pk.roof_type AS park_roof_type,
-        bp.full_name AS batter_full_name,
+        COALESCE(bp.full_name, odds_name.player_name) AS batter_full_name,
         bp.bats AS batter_bats,
         pp.full_name AS pitcher_full_name,
         pp.throws AS pitcher_throws,
@@ -47,6 +47,19 @@ _MATCHUP_SQL = text("""
     LEFT JOIN parks pk ON pk.park_id = mf.park_id
     LEFT JOIN players bp ON bp.mlbam_id = mf.batter_id
     LEFT JOIN players pp ON pp.mlbam_id = mf.pitcher_id
+    LEFT JOIN LATERAL (
+        SELECT os.player_name
+        FROM odds_snapshots os
+        WHERE os.game_pk = mf.game_pk
+          AND os.batter_id = mf.batter_id
+          AND os.market_key = 'batter_home_runs'
+          AND os.outcome_name IN ('Over', 'Yes')
+          AND (os.point IS NULL OR ABS(os.point - 0.5) < 0.000001)
+          AND COALESCE(os.raw_outcome->>'name', '') !~*
+              '^\\s*[2-9][0-9]*\\+\\s+home runs?\\s*$'
+        ORDER BY os.fetched_at DESC, os.market_last_update DESC NULLS LAST, os.id DESC
+        LIMIT 1
+    ) odds_name ON TRUE
     LEFT JOIN teams tm_home ON tm_home.team_id = ds.home_team_id
     LEFT JOIN teams tm_away ON tm_away.team_id = ds.away_team_id
     WHERE mf.game_pk = :game_pk AND mf.batter_id = :batter_id

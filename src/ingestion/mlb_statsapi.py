@@ -17,18 +17,19 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.core.db import get_engine
-from src.core.models import DailySchedule, ProjectedLineup
+from src.core.models import DailySchedule, Player, ProjectedLineup
 from src.ingestion.mlb_statsapi_client import (
     fetch_boxscore,
     fetch_game_content,
     fetch_schedule_with_probables,
 )
-from src.ingestion.wire_models import ScheduleGameWithProbables
+from src.ingestion.wire_models import BoxscoreTeamSide, ScheduleGameWithProbables
 
 _log = logging.getLogger(__name__)
 
@@ -38,6 +39,12 @@ class DailyScheduleResult:
     target_date: date
     games_upserted: int
     lineups_upserted: int
+
+
+@dataclass(slots=True)
+class BoxscoreRows:
+    lineups: list[dict[str, Any]]
+    players: list[dict[str, Any]]
 
 
 def persist_daily_schedule(target_date: date, *, engine: Engine | None = None) -> int:
@@ -52,14 +59,19 @@ def persist_daily_schedule(target_date: date, *, engine: Engine | None = None) -
 
     schedule_rows: list[dict[str, Any]] = []
     lineup_rows: list[dict[str, Any]] = []
+    player_rows: list[dict[str, Any]] = []
 
     for g in games:
         roof_status = _safe_fetch_roof(g)
         schedule_rows.append(_schedule_row(g, roof_status))
-        lineup_rows.extend(_lineup_rows_for_game(g))
+        player_rows.extend(_probable_pitcher_rows(g))
+        boxscore_rows = _boxscore_rows_for_game(g)
+        lineup_rows.extend(boxscore_rows.lineups)
+        player_rows.extend(boxscore_rows.players)
 
     with session_factory() as session:
         _upsert_schedule(session, schedule_rows)
+        _upsert_players(session, player_rows)
         _upsert_lineups(session, lineup_rows)
         session.commit()
 
@@ -69,6 +81,7 @@ def persist_daily_schedule(target_date: date, *, engine: Engine | None = None) -
             "date": target_date.isoformat(),
             "games": len(schedule_rows),
             "lineups": len(lineup_rows),
+            "players": len(_dedupe_player_rows(player_rows)),
         },
     )
     return len(schedule_rows)
@@ -107,31 +120,134 @@ def _schedule_row(g: ScheduleGameWithProbables, roof_status: str | None) -> dict
     }
 
 
-def _lineup_rows_for_game(g: ScheduleGameWithProbables) -> list[dict[str, Any]]:
-    """Pull batting order from boxscore. Empty if lineup not yet posted."""
+def _boxscore_rows_for_game(g: ScheduleGameWithProbables) -> BoxscoreRows:
+    """Pull batting order + player bio refs from boxscore."""
     try:
         bx = fetch_boxscore(g.game_pk)
     except Exception as exc:  # noqa: BLE001
         _log.warning("boxscore fetch failed", extra={"game_pk": g.game_pk, "err": str(exc)})
-        return []
+        return BoxscoreRows(lineups=[], players=[])
 
-    rows: list[dict[str, Any]] = []
+    lineup_rows: list[dict[str, Any]] = []
+    player_rows: list[dict[str, Any]] = []
+    fetched_at = datetime.now(UTC)
     for side_obj in (bx.teams.home, bx.teams.away):
         team_id = side_obj.team.id
-        if team_id is None:
+        if team_id is not None:
+            for slot, batter_id in enumerate(side_obj.batting_order, start=1):
+                lineup_rows.append(
+                    {
+                        "game_pk": g.game_pk,
+                        "team_id": team_id,
+                        "batter_id": batter_id,
+                        "batting_order": slot,
+                        # Boxscore doesn't disambiguate; set True only when finals-known.
+                        "is_confirmed": False,
+                        "fetched_at": fetched_at,
+                    }
+                )
+        player_rows.extend(_player_rows_from_boxscore_side(side_obj))
+    return BoxscoreRows(lineups=lineup_rows, players=player_rows)
+
+
+def _lineup_rows_for_game(g: ScheduleGameWithProbables) -> list[dict[str, Any]]:
+    """Pull batting order from boxscore. Empty if lineup not yet posted."""
+    return _boxscore_rows_for_game(g).lineups
+
+
+def _probable_pitcher_rows(g: ScheduleGameWithProbables) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for side in (g.teams.home if g.teams else None, g.teams.away if g.teams else None):
+        pitcher = side.probable_pitcher if side is not None else None
+        if pitcher is None:
             continue
-        for slot, batter_id in enumerate(side_obj.batting_order, start=1):
-            rows.append(
-                {
-                    "game_pk": g.game_pk,
-                    "team_id": team_id,
-                    "batter_id": batter_id,
-                    "batting_order": slot,
-                    "is_confirmed": False,  # boxscore doesn't disambiguate; set True only when finals-known
-                    "fetched_at": datetime.now(UTC),
-                }
-            )
+        row = _player_row(mlbam_id=pitcher.id, full_name=pitcher.full_name)
+        if row is not None:
+            rows.append(row)
     return rows
+
+
+def _player_rows_from_boxscore_side(side: BoxscoreTeamSide) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for player in side.players.values():
+        row = _player_row(
+            mlbam_id=player.mlbam_id,
+            full_name=player.full_name,
+            bats=player.bats,
+            throws=player.throws,
+            primary_position=player.primary_position,
+        )
+        if row is not None:
+            rows.append(row)
+    return rows
+
+
+def _player_row(
+    *,
+    mlbam_id: int | None,
+    full_name: str | None = None,
+    bats: str | None = None,
+    throws: str | None = None,
+    primary_position: str | None = None,
+) -> dict[str, Any] | None:
+    if mlbam_id is None:
+        return None
+    clean_name = _clean_text(full_name, max_len=128)
+    first_name, last_name = _split_name(clean_name)
+    return {
+        "mlbam_id": int(mlbam_id),
+        "full_name": clean_name,
+        "first_name": first_name,
+        "last_name": last_name,
+        "bats": _clean_code(bats, max_len=1),
+        "throws": _clean_code(throws, max_len=1),
+        "primary_position": _clean_code(primary_position, max_len=4),
+        "active": True,
+    }
+
+
+def _clean_text(value: str | None, *, max_len: int) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned[:max_len] or None
+
+
+def _clean_code(value: str | None, *, max_len: int) -> str | None:
+    cleaned = _clean_text(value, max_len=max_len)
+    return cleaned.upper() if cleaned is not None else None
+
+
+def _split_name(full_name: str | None) -> tuple[str | None, str | None]:
+    if full_name is None:
+        return None, None
+    parts = full_name.split(maxsplit=1)
+    if len(parts) == 1:
+        return parts[0], None
+    return parts[0], parts[1]
+
+
+def _dedupe_player_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        mlbam_id = int(row["mlbam_id"])
+        current = deduped.setdefault(
+            mlbam_id,
+            {
+                "mlbam_id": mlbam_id,
+                "full_name": None,
+                "first_name": None,
+                "last_name": None,
+                "bats": None,
+                "throws": None,
+                "primary_position": None,
+                "active": True,
+            },
+        )
+        for key, value in row.items():
+            if value is not None and value != "":
+                current[key] = value
+    return list(deduped.values())
 
 
 def _upsert_schedule(session: Session, rows: list[dict[str, Any]]) -> int:
@@ -146,6 +262,32 @@ def _upsert_schedule(session: Session, rows: list[dict[str, Any]]) -> int:
     stmt = stmt.on_conflict_do_update(index_elements=[DailySchedule.game_pk], set_=update_cols)
     session.execute(stmt)
     return len(rows)
+
+
+def _upsert_players(session: Session, rows: list[dict[str, Any]]) -> int:
+    deduped_rows = _dedupe_player_rows(rows)
+    if not deduped_rows:
+        return 0
+    stmt = pg_insert(Player).values(deduped_rows)
+    update_cols = {
+        "full_name": func.coalesce(stmt.excluded.full_name, Player.full_name),
+        "first_name": func.coalesce(stmt.excluded.first_name, Player.first_name),
+        "last_name": func.coalesce(stmt.excluded.last_name, Player.last_name),
+        "bats": func.coalesce(stmt.excluded.bats, Player.bats),
+        "throws": func.coalesce(stmt.excluded.throws, Player.throws),
+        "primary_position": func.coalesce(
+            stmt.excluded.primary_position,
+            Player.primary_position,
+        ),
+        "active": func.coalesce(stmt.excluded.active, Player.active),
+        "updated_at": func.now(),
+    }
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[Player.mlbam_id],
+        set_=update_cols,
+    )
+    session.execute(stmt)
+    return len(deduped_rows)
 
 
 def _upsert_lineups(session: Session, rows: list[dict[str, Any]]) -> int:
